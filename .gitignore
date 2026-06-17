@@ -3,6 +3,15 @@
 # 万一にも公開リポジトリへ流出しないよう、データ類はすべて追跡対象外にする。
 /data/**
 !/data/.gitkeep
+
+# --- cabt Engine（Kaggle 提供のシミュレータ = Competition Data。再配布禁止・追跡外） ---
+# Sec 2.4a / 3.18.a: 「Kaggle で提供されたソースコード・実行コード」も Competition Data。
+# 提供物そのものはコミットしない。自分で書くエージェント/学習コードのみ追跡する。
+/src/cg/
+/src/main.py
+deck.csv
+*.so
+*.dll
 /models/**
 !/models/.gitkeep
 *.ckpt
