@@ -1,0 +1,16 @@
+.git
+.gitignore
+**/__pycache__
+*.pyc
+.venv
+venv
+data
+models
+runs
+wandb
+mlruns
+logs
+notebooks/.ipynb_checkpoints
+.env
+.env.local
+README.md

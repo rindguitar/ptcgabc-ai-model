@@ -1,0 +1,47 @@
+# 値はハードコードせず .env（既定値は .env.example 参照）から注入する。
+# 例: BASE_IMAGE / IMAGE_TAG / GPU_COUNT / SHM_SIZE / JUPYTER_PORT / WORKDIR など
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${BASE_IMAGE}
+        WORKDIR: ${WORKDIR}
+    image: ${IMAGE_NAME}:${IMAGE_TAG}
+    container_name: ${PROJECT_NAME}-dev
+    # GPU を割り当て（WSL + NVIDIA Container Toolkit が必要）
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT}
+              capabilities: [gpu]
+    # 共有メモリ: DataLoader の num_workers 利用時に不足しがちなので拡張可能に
+    shm_size: ${SHM_SIZE}
+    working_dir: ${WORKDIR}
+    volumes:
+      - .:${WORKDIR}
+      # データ/モデルはホスト側に保持（規約: 競技終了後に削除しやすくする）
+      - ${DATA_DIR}:${WORKDIR}/data
+      - ${MODELS_DIR}:${WORKDIR}/models
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=${WORKDIR}
+    # 開発用に起動しっぱなしにする
+    stdin_open: true
+    tty: true
+    command: bash
+
+  # Jupyter Lab を使う場合: `docker compose up jupyter`
+  jupyter:
+    extends:
+      service: dev
+    container_name: ${PROJECT_NAME}-jupyter
+    ports:
+      - "${JUPYTER_PORT}:8888"
+    command: >
+      jupyter lab --ip=0.0.0.0 --port=8888 --no-browser
+      --allow-root --NotebookApp.token=${JUPYTER_TOKEN}

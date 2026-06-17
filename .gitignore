@@ -1,0 +1,55 @@
+# === 競技データ・成果物（規約上 非公開／競技終了後に削除する対象） ===
+# Section 2.4: Competition Data は再配布禁止・競技終了後に削除義務あり。
+# 万一にも公開リポジトリへ流出しないよう、データ類はすべて追跡対象外にする。
+/data/**
+!/data/.gitkeep
+/models/**
+!/models/.gitkeep
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.h5
+*.pkl
+*.parquet
+*.csv
+*.tsv
+*.npz
+*.npy
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.python-version
+
+# === 学習ログ・実験管理 ===
+runs/
+wandb/
+mlruns/
+lightning_logs/
+outputs/
+logs/
+*.log
+
+# === Jupyter ===
+.ipynb_checkpoints/
+
+# === 環境・秘匿情報 ===
+.env
+.env.local
+*.key
+*.pem
+secrets/
+
+# === エディタ / OS ===
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

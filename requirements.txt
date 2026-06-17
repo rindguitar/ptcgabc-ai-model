@@ -1,0 +1,24 @@
+# PyTorch / torchvision / torchaudio はベースイメージに同梱のため記載しない。
+# バージョンは再現性のため上限/下限を緩く固定（必要に応じてピン留めを強める）。
+
+# 数値計算・データ処理
+numpy
+pandas
+scipy
+
+# 強化学習・環境
+gymnasium
+
+# 実験管理・設定
+pyyaml
+omegaconf
+tqdm
+tensorboard
+
+# 開発・ノートブック
+jupyterlab
+ipykernel
+
+# 整形・テスト
+ruff
+pytest
