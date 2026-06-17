@@ -1,24 +1,29 @@
 # PyTorch / torchvision / torchaudio はベースイメージに同梱のため記載しない。
 # バージョンは再現性のため上限/下限を緩く固定（必要に応じてピン留めを強める）。
+#
+# 方針: cabt Engine は Python + 標準ライブラリだけで動く（GPU 不要）。
+# ISMCTS 中核の Phase 0〜2 で実際に使う最小限のみを有効化し、
+# 残りは使う Phase になってからコメントアウトを外す。
 
-# 数値計算・データ処理
+# --- 近期で使う（数値計算・データ処理） ---
 numpy
 pandas
-scipy
 
-# 強化学習・環境
-gymnasium
-
-# 実験管理・設定
-pyyaml
-omegaconf
-tqdm
-tensorboard
-
-# 開発・ノートブック
-jupyterlab
-ipykernel
-
-# 整形・テスト
+# --- 整形・テスト（開発ツール） ---
 ruff
 pytest
+
+# === 以下は使う Phase で有効化する（現状未使用） ===
+# --- Phase 2: 実験設定・進捗表示 ---
+# pyyaml
+# omegaconf
+# tqdm
+
+# --- Phase 3: 深層RL 学習（GPU/Docker 利用時） ---
+# tensorboard
+# gymnasium      # エンジンは gym 環境ではない。RL ラッパを採用する場合のみ
+
+# --- 任意: ノートブック / その他 ---
+# jupyterlab
+# ipykernel
+# scipy

@@ -29,8 +29,20 @@ AIモデル開発リポジトリ（**非公開**）。
 └── docs/        # ルール等のドキュメント
 ```
 
-## 環境構築（Docker / GPU）
+## 環境構築
 
+cabt Engine は Python + 標準ライブラリだけで動く（**GPU 不要・CPU で動作**）。
+日常開発（lint / test / 自己対戦）はホストで `make` 経由で行う:
+
+```bash
+make deps     # 初回: 依存パッケージをホストにインストール
+make smoke    # cabt Engine の自己対戦スモークテスト
+make check    # lint + フォーマット差分 + test
+```
+
+### GPU / Docker（Phase 3 の深層RL学習で使用）
+
+GPU を使う深層RL学習（Phase 3・任意）でのみ Docker を使う。
 前提: WSL2 + NVIDIA GPU + NVIDIA Container Toolkit。
 
 ```bash
@@ -54,6 +66,7 @@ docker compose up jupyter   # http://localhost:${JUPYTER_PORT}
 
 ## 開発メモ
 
-- フレームワーク: PyTorch（強化学習を想定し `gymnasium` を同梱）
-- 整形/Lint: `ruff` / テスト: `pytest`
-- カードプール等のデータは別途追加予定。
+- 対戦は Kaggle 提供の **cabt Engine** 上で実行（提供物は Competition Data のため追跡外）。
+- 手法は **ISMCTS** を中核に段階構築（詳細は `CLAUDE.md`）。
+- 整形/Lint: `ruff` / テスト: `pytest`（いずれも `make` 経由・ホスト実行）。
+- 深層RL学習（Phase 3・任意）でのみ PyTorch / GPU / Docker を使う。

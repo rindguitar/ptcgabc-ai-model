@@ -58,18 +58,27 @@ Kaggle「The Pokémon Company - PTCG AI Battle Challenge Strategy」（Simulatio
 - エネルギー種別やコストは `{G}{R}{W}{L}...` のシンボル、コストの追加分は `●` で表記される。
 - 欠損は `n/a` または空文字。両方を欠損として扱う。
 
-## 環境・コマンド（Docker / GPU）
+## 環境・コマンド
+
+cabt Engine は Python + 標準ライブラリだけで動く（**GPU 不要・CPU で動作**）。日常開発
+（lint / test / 自己対戦）はホストで `make` 経由で行う。GPU/Docker は Phase 3 の深層RL学習でのみ使う。
+
+```bash
+make deps    # 初回: 依存をホストにインストール
+make smoke   # cabt Engine 自己対戦スモークテスト（src/harness.py）
+make check   # lint + フォーマット差分 + test
+```
+
+### GPU / Docker（Phase 3 用）
 
 前提: WSL2 + NVIDIA GPU（GTX 1060 / Pascal 想定）+ NVIDIA Container Toolkit。
 設定値はすべて `.env`（`cp .env.example .env`）で管理し、**ハードコードしない**。
 
 ```bash
-docker compose build                 # イメージビルド
-docker compose run --rm dev bash     # 開発シェル
-docker compose up jupyter            # Jupyter Lab (http://localhost:${JUPYTER_PORT})
-
-# GPU 確認
-python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+make build                 # イメージビルド（時間がかかる→ユーザー実行）
+make shell                 # 開発用コンテナで bash
+make gpu-check             # コンテナから CUDA を確認
+make exec CMD="..."        # 任意コマンドをコンテナ内で実行
 ```
 
 コンテナ内では `WORKDIR=/workspace`、`PYTHONPATH=/workspace`（`src` を import 可能）。
