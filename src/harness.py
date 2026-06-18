@@ -154,6 +154,47 @@ def evaluate_decks(
     }
 
 
+def evaluate_decks_with_factory(
+    deck_a: list[int],
+    deck_b: list[int],
+    factory,
+    rng: random.Random,
+    games: int,
+    alternate: bool = True,
+) -> dict:
+    """席ごとに操縦者を生成して deck_a vs deck_b を評価する.
+
+    factory(my_deck, opp_deck) -> Agent。各席の操縦者をそのデッキ用に作る
+    （ISMCTS のように自分/相手デッキで determinize する操縦者に対応するため）。
+    """
+    wins_a = wins_b = draws = 0
+    for g in range(games):
+        a_seat1 = alternate and (g % 2 == 1)
+        if a_seat1:
+            d0, d1, a_seat = deck_b, deck_a, 1
+        else:
+            d0, d1, a_seat = deck_a, deck_b, 0
+        agent0 = factory(d0, d1)
+        agent1 = factory(d1, d0)
+        out = play_match(agent0, agent1, d0, d1, rng)
+
+        if out["result"] is None or out["result"] == 2:
+            draws += 1
+        elif out["result"] == a_seat:
+            wins_a += 1
+        else:
+            wins_b += 1
+
+    decided = wins_a + wins_b
+    win_rate_a = wins_a / decided if decided else float("nan")
+    return {
+        "wins_a": wins_a,
+        "wins_b": wins_b,
+        "draws": draws,
+        "win_rate_a": win_rate_a,
+    }
+
+
 def _build_agent(
     name: str,
     meta,
