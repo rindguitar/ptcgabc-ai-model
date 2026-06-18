@@ -12,6 +12,11 @@
 deck.csv
 *.so
 *.dll
+
+# --- Pokémon ルールブック等の PDF（Pokémon Elements を含む参照物。ローカルのみ・追跡外） ---
+# 公式ルールブックはゲームルール・カード面デザイン・イラスト等の Pokémon Elements を含むため
+# git にはコミットしない（履歴肥大化の回避も兼ねる）。docs/*.txt（競技規約）は追跡対象のまま。
+*.pdf
 /models/**
 !/models/.gitkeep
 *.ckpt
