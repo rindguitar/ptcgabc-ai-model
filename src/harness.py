@@ -114,6 +114,46 @@ def evaluate(
     }
 
 
+def evaluate_decks(
+    deck_a: list[int],
+    deck_b: list[int],
+    agent: Agent,
+    rng: random.Random,
+    games: int,
+    alternate: bool = True,
+) -> dict:
+    """同一エージェントで deck_a と deck_b を対戦させ、deck_a 視点の勝敗を集計する.
+
+    デッキ最適化の適応度に使う（操縦者は共通の方策。デッキの強さだけを比較）。
+    alternate=True のとき席を入れ替えて先手有利を打ち消す。
+    """
+    wins_a = wins_b = draws = 0
+    for g in range(games):
+        a_seat1 = alternate and (g % 2 == 1)
+        if a_seat1:
+            out = play_match(agent, agent, deck_b, deck_a, rng)
+            a_seat = 1
+        else:
+            out = play_match(agent, agent, deck_a, deck_b, rng)
+            a_seat = 0
+
+        if out["result"] is None or out["result"] == 2:
+            draws += 1
+        elif out["result"] == a_seat:
+            wins_a += 1
+        else:
+            wins_b += 1
+
+    decided = wins_a + wins_b
+    win_rate_a = wins_a / decided if decided else float("nan")
+    return {
+        "wins_a": wins_a,
+        "wins_b": wins_b,
+        "draws": draws,
+        "win_rate_a": win_rate_a,
+    }
+
+
 def _build_agent(name: str, meta, deck: list[int], time_budget: float) -> Agent:
     """エージェント名から実体を生成する."""
     if name == "random":
