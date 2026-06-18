@@ -1,11 +1,11 @@
-"""Phase 0 自己対戦ハーネス（スモークテスト用）.
+"""自己対戦ハーネス（エージェント評価用）.
 
-cabt Engine（追跡外の提供物 `cg`）を直接ドライブし、2 つのデッキで 1 試合を
-最後まで実行できるかを確認する。エージェントは「合法手からランダムに選ぶ」だけの
-最小実装。観測・選択・終局判定の取り回しを固めるための足場。
+cabt Engine（追跡外の提供物 `cg`）を直接ドライブし、2 つのエージェントを対戦させて
+勝率を集計する。先手有利を打ち消すため、試合ごとに席（先手/後手）を入れ替えて評価する。
 
 実行例（リポジトリ直下から）:
-    python src/harness.py --deck data/deck.csv --games 1 --seed 0
+    python src/harness.py --a heuristic --b random --games 100 --seed 0
+    python src/harness.py --a random --b random --games 20   # 純粋なエンジン疎通確認
 """
 
 from __future__ import annotations
@@ -15,12 +15,13 @@ import os
 import random
 import sys
 
-# このファイルと同階層（src/）を import path に追加し、提供物 `cg` を top-level で読めるようにする。
-# （cabt の提供コードは `from cg.api import ...` の形を前提にしているため。）
+# このファイルと同階層（src/）を import path に追加し、提供物 `cg` と自作モジュールを読めるようにする。
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cg.api import Observation, to_observation_class  # noqa: E402
-from cg.game import battle_finish, battle_start, battle_select  # noqa: E402
+from agents import Agent, make_heuristic_agent, random_agent  # noqa: E402
+from cards import load_card_meta  # noqa: E402
+from cg.api import to_observation_class  # noqa: E402
+from cg.game import battle_finish, battle_select, battle_start  # noqa: E402
 
 
 def read_deck(path: str) -> list[int]:
@@ -32,67 +33,105 @@ def read_deck(path: str) -> list[int]:
     return ids
 
 
-def random_agent(obs: Observation, rng: random.Random) -> list[int]:
-    """合法手からランダムに選ぶだけの baseline エージェント.
+def play_match(
+    agent0: Agent,
+    agent1: Agent,
+    deck0: list[int],
+    deck1: list[int],
+    rng: random.Random,
+    max_steps: int = 100_000,
+) -> dict:
+    """1 試合を agent0（席0）vs agent1（席1）で実行し、結果を返す.
 
-    返すインデックスは select.option の範囲内で、minCount〜maxCount 個・重複なし。
+    Returns:
+        dict: result（勝者席 index 0/1, 引き分け 2, 不明 None）, turn, steps。
     """
-    sel = obs.select
-    count = rng.randint(sel.minCount, sel.maxCount)
-    if count == 0:
-        return []
-    return rng.sample(range(len(sel.option)), count)
-
-
-def play_one_game(deck0: list[int], deck1: list[int], rng: random.Random,
-                  max_steps: int = 100_000) -> dict:
-    """1 試合をランダムエージェント同士で最後まで実行し、結果を返す."""
     obs_dict, start = battle_start(deck0, deck1)
     if obs_dict is None:
         raise RuntimeError(
             f"battle_start に失敗（errorPlayer={start.errorPlayer}, errorType={start.errorType}）"
         )
 
-    steps = 0
+    agents = (agent0, agent1)
     try:
         for steps in range(1, max_steps + 1):
             obs = to_observation_class(obs_dict)
-            # 終局判定: current.result は勝者 index（0/1）、引き分けは 2、未終了は -1。
             if obs.current is not None and obs.current.result != -1:
-                return {
-                    "result": obs.current.result,
-                    "turn": obs.current.turn,
-                    "steps": steps,
-                }
+                return {"result": obs.current.result, "turn": obs.current.turn, "steps": steps}
             if obs.select is None:
-                # battle_start 経由では発生しない想定。安全のためのガード。
                 return {"result": None, "turn": getattr(obs.current, "turn", None), "steps": steps}
-            obs_dict = battle_select(random_agent(obs, rng))
+            who = obs.current.yourIndex if obs.current is not None else 0
+            obs_dict = battle_select(agents[who](obs, rng))
         raise RuntimeError(f"max_steps={max_steps} に到達（無限ループの疑い）")
     finally:
         battle_finish()
 
 
+def evaluate(
+    agent_a: Agent,
+    agent_b: Agent,
+    deck: list[int],
+    rng: random.Random,
+    games: int,
+    alternate: bool = True,
+) -> dict:
+    """agent_a と agent_b を `games` 試合対戦させ、A 視点の勝敗を集計する.
+
+    alternate=True のとき、試合ごとに席を入れ替えて先手有利を打ち消す。
+    """
+    wins_a = wins_b = draws = 0
+    for g in range(games):
+        a_seat1 = alternate and (g % 2 == 1)  # 奇数試合は A を後手（席1）に
+        if a_seat1:
+            out = play_match(agent_b, agent_a, deck, deck, rng)
+            winner_is_a = out["result"] == 1
+        else:
+            out = play_match(agent_a, agent_b, deck, deck, rng)
+            winner_is_a = out["result"] == 0
+
+        if out["result"] is None or out["result"] == 2:
+            draws += 1
+        elif winner_is_a:
+            wins_a += 1
+        else:
+            wins_b += 1
+
+    decided = wins_a + wins_b
+    win_rate_a = wins_a / decided if decided else float("nan")
+    return {"wins_a": wins_a, "wins_b": wins_b, "draws": draws, "win_rate_a": win_rate_a}
+
+
+def _build_agent(name: str, meta) -> Agent:
+    """エージェント名から実体を生成する."""
+    if name == "random":
+        return random_agent
+    if name == "heuristic":
+        return make_heuristic_agent(meta)
+    raise ValueError(f"未知のエージェント: {name}")
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="cabt Engine 自己対戦スモークテスト")
+    parser = argparse.ArgumentParser(description="cabt Engine 自己対戦ハーネス")
     parser.add_argument("--deck", default="data/deck.csv", help="両プレイヤー共通のデッキ CSV")
-    parser.add_argument("--games", type=int, default=1, help="実行する試合数")
+    parser.add_argument("--a", default="heuristic", choices=["heuristic", "random"], help="エージェント A")
+    parser.add_argument("--b", default="random", choices=["heuristic", "random"], help="エージェント B")
+    parser.add_argument("--games", type=int, default=100, help="試合数")
     parser.add_argument("--seed", type=int, default=0, help="乱数シード")
+    parser.add_argument("--no-alternate", action="store_true", help="席の入れ替えを無効化")
     args = parser.parse_args()
 
     deck = read_deck(args.deck)
     rng = random.Random(args.seed)
+    meta = load_card_meta()
 
-    wins = {0: 0, 1: 0, 2: 0}  # 0/1=各プレイヤー勝利, 2=引き分け
-    for g in range(args.games):
-        out = play_one_game(deck, deck, rng)
-        r = out["result"]
-        if r in wins:
-            wins[r] += 1
-        print(f"game {g}: result={r} turn={out['turn']} steps={out['steps']}")
+    agent_a = _build_agent(args.a, meta)
+    agent_b = _build_agent(args.b, meta)
 
-    print(f"\nsummary over {args.games} games: "
-          f"p0_win={wins[0]} p1_win={wins[1]} draw={wins[2]}")
+    res = evaluate(agent_a, agent_b, deck, rng, args.games, alternate=not args.no_alternate)
+
+    print(f"A={args.a} vs B={args.b}  ({args.games} games, seed={args.seed})")
+    print(f"  A wins: {res['wins_a']}  B wins: {res['wins_b']}  draws: {res['draws']}")
+    print(f"  A win rate (decided games): {res['win_rate_a']:.3f}")
 
 
 if __name__ == "__main__":

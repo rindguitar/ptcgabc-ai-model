@@ -18,7 +18,7 @@ COMPOSE ?= docker compose
 RUN     := $(COMPOSE) run --rm dev
 
 .DEFAULT_GOAL := help
-.PHONY: help deps lint format fmt-check test smoke check \
+.PHONY: help deps lint format fmt-check test smoke bench check \
         build rebuild shell jupyter gpu-check exec up down clean
 
 # --- ヘルプ -----------------------------------------------------------------
@@ -44,8 +44,11 @@ fmt-check: ## フォーマット差分のチェックのみ（書き換えない
 test: ## pytest を実行（ホスト）
 	$(PY) -m pytest
 
-smoke: ## cabt Engine 自己対戦スモークテスト（ランダム同士・20試合）
-	$(PY) src/harness.py --deck data/deck.csv --games 20 --seed 0
+smoke: ## cabt Engine 疎通確認（ランダム同士・20試合）
+	$(PY) src/harness.py --a random --b random --games 20 --seed 0
+
+bench: ## baseline 評価（ヒューリスティック vs ランダム・100試合）
+	$(PY) src/harness.py --a heuristic --b random --games 100 --seed 0
 
 # まとめて品質チェック（Lint + フォーマット差分 + テスト）。
 check: lint fmt-check test ## lint・fmt-check・test を順に実行

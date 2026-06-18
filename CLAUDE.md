@@ -47,7 +47,8 @@ Kaggle「The Pokémon Company - PTCG AI Battle Challenge Strategy」（Simulatio
 
 ## データ（`data/`・追跡外）
 
-- `EN_Card_Data.csv` / `JP_Card_Data.csv`: 各 2102 枚（同一 ID で EN/JP 対応）。
+- `EN_Card_Data.csv` / `JP_Card_Data.csv`: 各 2102 行 ＝ **ユニーク 1267 枚**（Card ID 1–1267、同一 ID で EN/JP 対応）。
+  1 枚が複数ワザ／特性を持つと複数行になるため「行数 ≠ 枚数」。エンジンの `AllCard` の 1267 枚と一致＝これが大会リーガルな全カードプール（デッキ構築の探索空間）。
 - `Card_ID List_EN.pdf` / `Card_ID List_JP.pdf`: カード ID 一覧（大容量）。
 - CSV カラム（EN）:
   `Card ID, Card Name, Expansion, Collection No., Stage (Pokémon)/Type (Energy and Trainer),
