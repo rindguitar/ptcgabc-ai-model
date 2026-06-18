@@ -114,12 +114,16 @@ def evaluate(
     }
 
 
-def _build_agent(name: str, meta) -> Agent:
+def _build_agent(name: str, meta, deck: list[int], time_budget: float) -> Agent:
     """エージェント名から実体を生成する."""
     if name == "random":
         return random_agent
     if name == "heuristic":
         return make_heuristic_agent(meta)
+    if name == "ismcts":
+        from ismcts import make_ismcts_agent
+
+        return make_ismcts_agent(meta, deck, deck, time_budget=time_budget)
     raise ValueError(f"未知のエージェント: {name}")
 
 
@@ -128,17 +132,21 @@ def main() -> None:
     parser.add_argument(
         "--deck", default="data/deck.csv", help="両プレイヤー共通のデッキ CSV"
     )
+    agent_choices = ["heuristic", "random", "ismcts"]
     parser.add_argument(
-        "--a",
-        default="heuristic",
-        choices=["heuristic", "random"],
-        help="エージェント A",
+        "--a", default="heuristic", choices=agent_choices, help="エージェント A"
     )
     parser.add_argument(
-        "--b", default="random", choices=["heuristic", "random"], help="エージェント B"
+        "--b", default="random", choices=agent_choices, help="エージェント B"
     )
     parser.add_argument("--games", type=int, default=100, help="試合数")
     parser.add_argument("--seed", type=int, default=0, help="乱数シード")
+    parser.add_argument(
+        "--time-budget",
+        type=float,
+        default=0.5,
+        help="ISMCTS の1手あたり思考時間（秒）",
+    )
     parser.add_argument(
         "--no-alternate", action="store_true", help="席の入れ替えを無効化"
     )
@@ -148,8 +156,8 @@ def main() -> None:
     rng = random.Random(args.seed)
     meta = load_card_meta()
 
-    agent_a = _build_agent(args.a, meta)
-    agent_b = _build_agent(args.b, meta)
+    agent_a = _build_agent(args.a, meta, deck, args.time_budget)
+    agent_b = _build_agent(args.b, meta, deck, args.time_budget)
 
     res = evaluate(
         agent_a, agent_b, deck, rng, args.games, alternate=not args.no_alternate
