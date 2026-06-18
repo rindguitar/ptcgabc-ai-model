@@ -192,11 +192,28 @@ def _simulate(
         nd.w += value
 
 
+def _move_budget(
+    remaining: float, fraction: float, lo: float, hi: float, reserve: float
+) -> float:
+    """残り持ち時間から 1 手の思考予算（秒）を決める（自己補正・ゼロにしない）.
+
+    予算 = clamp(remaining*fraction, lo, hi)。ただし残りから reserve を必ず残す。
+    fraction<1 なので残り時間を一度に使い切らず、手を追うごとに自然に縮む。
+    """
+    budget = min(max(remaining * fraction, lo), hi)
+    return min(budget, max(0.0, remaining - reserve))
+
+
 def make_ismcts_agent(
     meta: CardMeta,
     my_deck: list[int],
     opp_deck: list[int],
     time_budget: float = 0.5,
+    game_budget: float | None = None,
+    clock_fraction: float = 0.08,
+    min_move_budget: float = 0.05,
+    max_move_budget: float = 20.0,
+    time_reserve: float = 5.0,
     iters_per_det: int = 40,
     c: float = 1.4,
     max_rollout_depth: int = 300,
@@ -209,7 +226,12 @@ def make_ismcts_agent(
     Args:
         meta: カードメタ。
         my_deck/opp_deck: 自分/相手のデッキ構成（determinize 用。自己対戦は同一）。
-        time_budget: 1手あたりの思考時間（秒）。
+        time_budget: 1手あたりの思考時間（秒）。game_budget=None のとき使う。
+        game_budget: 1試合の累積持ち時間（秒）。指定すると残り時間から1手予算を動的配分する
+            （クロック管理）。本大会は1プレイヤー600秒なので安全マージンを引いた値（例 540）を渡す。
+        clock_fraction: クロック管理時、残り時間に対する1手予算の割合。
+        min_move_budget/max_move_budget: 1手予算の下限/上限（秒）。
+        time_reserve: 試合終盤に必ず残す予備時間（秒）。時間切れ負けの保険。
         iters_per_det: determinization 1つあたりの UCT 反復数。
         c: UCB の探索係数。
         max_rollout_depth: rollout の最大手数（打ち切り時はサイド差で価値推定）。
@@ -222,16 +244,41 @@ def make_ismcts_agent(
     """
     heuristic = make_heuristic_agent(meta)
     policy = rollout_policy or heuristic
+    # 試合をまたいで持つクロック状態（elapsed=この試合で使った思考秒, last_turn=直近のターン番号）
+    clock = {"elapsed": 0.0, "last_turn": None}
 
     def ismcts_agent(obs: Observation, rng: random.Random) -> list[int]:
+        # クロック管理: ターン番号が戻ったら新しい試合とみなして持ち時間をリセット
+        if game_budget is not None and obs.current is not None:
+            turn = obs.current.turn
+            if clock["last_turn"] is None or turn < clock["last_turn"]:
+                clock["elapsed"] = 0.0
+            clock["last_turn"] = turn
+
         sel = obs.select
         # 自明 / 非戦略的な選択はヒューリスティック即決（探索コストを温存）
         if sel is None or len(sel.option) <= 1 or sel.type not in _MCTS_SELECT_TYPES:
             return heuristic(obs, rng)
 
+        # 1手の思考予算を決める（クロック管理 or 固定）
+        if game_budget is not None:
+            remaining = game_budget - clock["elapsed"]
+            budget = _move_budget(
+                remaining,
+                clock_fraction,
+                min_move_budget,
+                max_move_budget,
+                time_reserve,
+            )
+            if budget <= 0.0:  # 残り時間が無い: 即ヒューリスティック
+                return heuristic(obs, rng)
+        else:
+            budget = time_budget
+
         # ルート行動の統計を determinization 横断で集計: action_key -> [visits, value_sum]
         agg: dict[tuple[int, ...], list[float]] = defaultdict(lambda: [0.0, 0.0])
-        deadline = perf_counter() + time_budget
+        move_start = perf_counter()
+        deadline = move_start + budget
         n_det = 0
         while perf_counter() < deadline:
             det = determinize(obs, my_deck, opp_deck, rng)
@@ -261,6 +308,10 @@ def make_ismcts_agent(
                 agg[key][1] += child.w
             search_end()
             n_det += 1
+
+        # この手に使った思考時間をクロックへ加算
+        if game_budget is not None:
+            clock["elapsed"] += perf_counter() - move_start
 
         h_action = tuple(heuristic(obs, rng))  # アンカー（既定の手）
         if not agg:

@@ -154,7 +154,13 @@ def evaluate_decks(
     }
 
 
-def _build_agent(name: str, meta, deck: list[int], time_budget: float) -> Agent:
+def _build_agent(
+    name: str,
+    meta,
+    deck: list[int],
+    time_budget: float,
+    game_budget: float | None = None,
+) -> Agent:
     """エージェント名から実体を生成する."""
     if name == "random":
         return random_agent
@@ -163,7 +169,9 @@ def _build_agent(name: str, meta, deck: list[int], time_budget: float) -> Agent:
     if name == "ismcts":
         from ismcts import make_ismcts_agent
 
-        return make_ismcts_agent(meta, deck, deck, time_budget=time_budget)
+        return make_ismcts_agent(
+            meta, deck, deck, time_budget=time_budget, game_budget=game_budget
+        )
     raise ValueError(f"未知のエージェント: {name}")
 
 
@@ -185,7 +193,13 @@ def main() -> None:
         "--time-budget",
         type=float,
         default=0.5,
-        help="ISMCTS の1手あたり思考時間（秒）",
+        help="ISMCTS の1手あたり思考時間（秒・game-budget 未指定時）",
+    )
+    parser.add_argument(
+        "--game-budget",
+        type=float,
+        default=None,
+        help="ISMCTS の1試合の累積持ち時間（秒）。指定すると残り時間から動的配分（本大会は600）",
     )
     parser.add_argument(
         "--no-alternate", action="store_true", help="席の入れ替えを無効化"
@@ -196,8 +210,8 @@ def main() -> None:
     rng = random.Random(args.seed)
     meta = load_card_meta()
 
-    agent_a = _build_agent(args.a, meta, deck, args.time_budget)
-    agent_b = _build_agent(args.b, meta, deck, args.time_budget)
+    agent_a = _build_agent(args.a, meta, deck, args.time_budget, args.game_budget)
+    agent_b = _build_agent(args.b, meta, deck, args.time_budget, args.game_budget)
 
     res = evaluate(
         agent_a, agent_b, deck, rng, args.games, alternate=not args.no_alternate
