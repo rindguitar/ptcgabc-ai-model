@@ -35,8 +35,9 @@ cabt Engine は Python + 標準ライブラリだけで動く（**GPU 不要・C
 日常開発（lint / test / 自己対戦）はホストで `make` 経由で行う:
 
 ```bash
-make deps     # 初回: 依存パッケージをホストにインストール
-make smoke    # cabt Engine の自己対戦スモークテスト
+make deps     # 初回: venv(.venv) を作成し依存をインストール
+make smoke    # cabt Engine の疎通確認（ランダム同士）
+make bench    # baseline 評価（ヒューリスティック vs ランダム）
 make check    # lint + フォーマット差分 + test
 ```
 

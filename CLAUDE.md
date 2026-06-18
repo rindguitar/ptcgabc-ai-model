@@ -65,8 +65,9 @@ cabt Engine は Python + 標準ライブラリだけで動く（**GPU 不要・C
 （lint / test / 自己対戦）はホストで `make` 経由で行う。GPU/Docker は Phase 3 の深層RL学習でのみ使う。
 
 ```bash
-make deps    # 初回: 依存をホストにインストール
-make smoke   # cabt Engine 自己対戦スモークテスト（src/harness.py）
+make deps    # 初回: venv(.venv) を作成し依存をインストール
+make smoke   # cabt Engine 疎通確認（ランダム同士・src/harness.py）
+make bench   # baseline 評価（ヒューリスティック vs ランダム）
 make check   # lint + フォーマット差分 + test
 ```
 

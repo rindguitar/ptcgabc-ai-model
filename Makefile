@@ -11,8 +11,10 @@
 # 注意: Makefile のレシピ行は「タブ」インデント必須（スペース不可）。
 
 # --- 設定 -------------------------------------------------------------------
-PY      ?= python3
-PIP     ?= $(PY) -m pip
+# ホスト開発は venv(.venv) に閉じる（システム Python を汚さない / PEP 668 回避）。
+# .venv があればその python を、無ければシステム python3 にフォールバックする。
+VENV    ?= .venv
+PY      := $(shell [ -x $(VENV)/bin/python ] && echo $(VENV)/bin/python || echo python3)
 COMPOSE ?= docker compose
 # 使い捨てコンテナで dev サービスのコマンドを実行するための共通プレフィックス。
 RUN     := $(COMPOSE) run --rm dev
@@ -29,8 +31,10 @@ help: ## このヘルプを表示
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 # === ホスト実行（軽い作業・高速） ==========================================
-deps: ## ホストに依存パッケージをインストール（初回/更新時）
-	$(PIP) install -r requirements.txt
+deps: ## venv(.venv) を作成し依存をインストール（初回/更新時）
+	python3 -m venv $(VENV)
+	$(VENV)/bin/python -m pip install --upgrade pip
+	$(VENV)/bin/python -m pip install -r requirements.txt
 
 lint: ## ruff で Lint（ホスト）
 	$(PY) -m ruff check .
@@ -68,7 +72,7 @@ jupyter: ## Jupyter Lab を起動 (http://localhost:${JUPYTER_PORT})
 	$(COMPOSE) up jupyter
 
 gpu-check: ## コンテナから GPU（CUDA）が見えるか確認
-	$(RUN) $(PY) -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+	$(RUN) python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 
 exec: ## 任意コマンドをコンテナ内で実行。例: make exec CMD="python src/harness.py"
 	$(RUN) $(CMD)

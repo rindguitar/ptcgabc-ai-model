@@ -57,9 +57,17 @@ def play_match(
         for steps in range(1, max_steps + 1):
             obs = to_observation_class(obs_dict)
             if obs.current is not None and obs.current.result != -1:
-                return {"result": obs.current.result, "turn": obs.current.turn, "steps": steps}
+                return {
+                    "result": obs.current.result,
+                    "turn": obs.current.turn,
+                    "steps": steps,
+                }
             if obs.select is None:
-                return {"result": None, "turn": getattr(obs.current, "turn", None), "steps": steps}
+                return {
+                    "result": None,
+                    "turn": getattr(obs.current, "turn", None),
+                    "steps": steps,
+                }
             who = obs.current.yourIndex if obs.current is not None else 0
             obs_dict = battle_select(agents[who](obs, rng))
         raise RuntimeError(f"max_steps={max_steps} に到達（無限ループの疑い）")
@@ -98,7 +106,12 @@ def evaluate(
 
     decided = wins_a + wins_b
     win_rate_a = wins_a / decided if decided else float("nan")
-    return {"wins_a": wins_a, "wins_b": wins_b, "draws": draws, "win_rate_a": win_rate_a}
+    return {
+        "wins_a": wins_a,
+        "wins_b": wins_b,
+        "draws": draws,
+        "win_rate_a": win_rate_a,
+    }
 
 
 def _build_agent(name: str, meta) -> Agent:
@@ -112,12 +125,23 @@ def _build_agent(name: str, meta) -> Agent:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="cabt Engine 自己対戦ハーネス")
-    parser.add_argument("--deck", default="data/deck.csv", help="両プレイヤー共通のデッキ CSV")
-    parser.add_argument("--a", default="heuristic", choices=["heuristic", "random"], help="エージェント A")
-    parser.add_argument("--b", default="random", choices=["heuristic", "random"], help="エージェント B")
+    parser.add_argument(
+        "--deck", default="data/deck.csv", help="両プレイヤー共通のデッキ CSV"
+    )
+    parser.add_argument(
+        "--a",
+        default="heuristic",
+        choices=["heuristic", "random"],
+        help="エージェント A",
+    )
+    parser.add_argument(
+        "--b", default="random", choices=["heuristic", "random"], help="エージェント B"
+    )
     parser.add_argument("--games", type=int, default=100, help="試合数")
     parser.add_argument("--seed", type=int, default=0, help="乱数シード")
-    parser.add_argument("--no-alternate", action="store_true", help="席の入れ替えを無効化")
+    parser.add_argument(
+        "--no-alternate", action="store_true", help="席の入れ替えを無効化"
+    )
     args = parser.parse_args()
 
     deck = read_deck(args.deck)
@@ -127,7 +151,9 @@ def main() -> None:
     agent_a = _build_agent(args.a, meta)
     agent_b = _build_agent(args.b, meta)
 
-    res = evaluate(agent_a, agent_b, deck, rng, args.games, alternate=not args.no_alternate)
+    res = evaluate(
+        agent_a, agent_b, deck, rng, args.games, alternate=not args.no_alternate
+    )
 
     print(f"A={args.a} vs B={args.b}  ({args.games} games, seed={args.seed})")
     print(f"  A wins: {res['wins_a']}  B wins: {res['wins_b']}  draws: {res['draws']}")
