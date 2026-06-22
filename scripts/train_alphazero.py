@@ -11,9 +11,11 @@ torch が要るので Docker で実行する:
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 import random
 import sys
+import time
 from collections import deque
 
 sys.path.insert(
@@ -73,6 +75,9 @@ def main() -> None:
         help="N反復ごとに vs heuristic 評価（0=無効）",
     )
     p.add_argument("--eval-games", type=int, default=12, help="評価の試合数")
+    p.add_argument(
+        "--log", default="models/train_log.csv", help="進捗ログ CSV（追記・追跡外）"
+    )
     args = p.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -88,6 +93,26 @@ def main() -> None:
         print(f"新規ネットで開始（device={device}）")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+
+    # 進捗ログ（追記）。寝ている間の経過を朝に確認できるよう、各反復をディスクに残す。
+    os.makedirs(os.path.dirname(args.log) or ".", exist_ok=True)
+    new_log = not os.path.exists(args.log)
+    log_file = open(args.log, "a", newline="")
+    log_writer = csv.writer(log_file)
+    if new_log:
+        log_writer.writerow(
+            [
+                "time",
+                "iter",
+                "new_samples",
+                "buffer",
+                "value_loss",
+                "policy_loss",
+                "eval_winrate",
+            ]
+        )
+        log_file.flush()
+
     # リプレイバッファ: 直近 args.buffer 反復分の自己対戦サンプルを保持し、まとめて学習する
     buffer: deque[list] = deque(maxlen=args.buffer)
     for it in range(args.iterations):
@@ -122,12 +147,28 @@ def main() -> None:
             f"value_loss={last['value_loss']:.4f} policy_loss={last['policy_loss']:.4f} "
             f"-> saved {args.out}"
         )
+        eval_wr = ""
         if args.eval_every and (it + 1) % args.eval_every == 0:
             wr = _eval_vs_heuristic(
                 net, meta, deck, device, args.eval_games, args.sims, args.dets, rng
             )
+            eval_wr = f"{wr:.3f}"
             print(f"  [eval] iter {it}: NN-MCTS vs heuristic 勝率 = {wr:.3f}")
-    print("完了")
+        # 進捗を CSV に追記（各反復ごとに flush＝途中で落ちても残る）
+        log_writer.writerow(
+            [
+                time.strftime("%Y-%m-%d %H:%M:%S"),
+                it,
+                len(new_samples),
+                len(train_data),
+                f"{last['value_loss']:.4f}",
+                f"{last['policy_loss']:.4f}",
+                eval_wr,
+            ]
+        )
+        log_file.flush()
+    log_file.close()
+    print(f"完了（進捗ログ: {args.log}）")
 
 
 if __name__ == "__main__":
