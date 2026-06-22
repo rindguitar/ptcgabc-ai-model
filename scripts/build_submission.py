@@ -17,13 +17,24 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import tarfile
 
 SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
 ROOT = os.path.dirname(SRC)
-# main.py が import する我々のモジュール（依存の閉包）
-MODULES = ["submission.py", "ismcts.py", "determinize.py", "agents.py", "cards.py"]
+# 我々のモジュール（依存の閉包）。一意 package ptcgbot/ に入れて名前衝突を避ける。
+MODULE_NAMES = ["submission", "ismcts", "determinize", "agents", "cards"]
+PACKAGE = "ptcgbot"
+
+# モジュール間の import を package 名前空間へ書き換える（cg エンジンは対象外＝そのまま）。
+_IMPORT_RE = re.compile(r"^(\s*)from (" + "|".join(MODULE_NAMES) + r")\b", re.MULTILINE)
+
+
+def _namespace_imports(source: str) -> str:
+    """`from agents import ...` 等を `from ptcgbot.agents import ...` に書き換える."""
+    return _IMPORT_RE.sub(r"\1from " + PACKAGE + r".\2", source)
+
 
 MAIN_PY = '''\
 """Kaggle 提出エントリ: 公式形式 agent(obs_dict) -> list[int] を公開する。"""
@@ -31,12 +42,13 @@ MAIN_PY = '''\
 import sys
 
 # kaggle_environments は main.py を exec で読み込むため __file__ が無い。
-# 提出物の展開先（固定パス）と cwd を import path に追加して同梱モジュールを読めるようにする。
+# 提出物の展開先（固定パス）と cwd を import path に追加して同梱物を読めるようにする。
 for _p in ("/kaggle_simulations/agent", "."):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from submission import make_kaggle_agent
+# 我々のモジュールは package ptcgbot に入れてある（汎用名の衝突回避）。
+from ptcgbot.submission import make_kaggle_agent
 
 # 1 試合 600 秒の累積クロック（remainingOverageTime）に安全マージンを見て 540 秒で運用する。
 agent = make_kaggle_agent("ismcts", deck_path="deck.csv", game_budget=540.0)
@@ -52,8 +64,15 @@ def build(deck_path: str, out_tar: str) -> tuple[str, list[str]]:
 
     with open(os.path.join(build_dir, "main.py"), "w") as f:
         f.write(MAIN_PY)
-    for module in MODULES:
-        shutil.copy(os.path.join(SRC, module), os.path.join(build_dir, module))
+    # 我々のモジュールは package ptcgbot/ に入れ、相互 import を名前空間化する
+    pkg_dir = os.path.join(build_dir, PACKAGE)
+    os.makedirs(pkg_dir)
+    open(os.path.join(pkg_dir, "__init__.py"), "w").close()
+    for module in MODULE_NAMES:
+        src = open(os.path.join(SRC, module + ".py")).read()
+        with open(os.path.join(pkg_dir, module + ".py"), "w") as f:
+            f.write(_namespace_imports(src))
+    # cg エンジンは root 直下（top-level import のまま）
     shutil.copytree(
         os.path.join(SRC, "cg"),
         os.path.join(build_dir, "cg"),
