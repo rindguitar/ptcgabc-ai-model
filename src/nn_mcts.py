@@ -29,7 +29,7 @@ from cg.api import (
     search_end,
     search_step,
 )
-from determinize import determinize
+from determinize import determinize, pick_opponent_deck
 
 # evaluator(obs) -> (value[0,1] 手番視点, priors: option に整列した確率)
 Evaluator = Callable[[Observation], "tuple[float, list[float]]"]
@@ -194,15 +194,17 @@ def aggregate_visits(
     n_determinizations: int,
     c_puct: float,
     fallback: Agent,
+    opp_pool: list[list[int]] | None = None,
 ) -> dict[tuple[int, ...], int]:
     """determinization 横断で PUCT を回し、根の行動別訪問数を集計して返す.
 
     返り値のキーは行動（option index のタプル）。self-play の方策ターゲット π や
-    エージェントの行動選択に使う。
+    エージェントの行動選択に使う。opp_pool 指定時は相手デッキを観測整合で推定する。
     """
     visits: dict[tuple[int, ...], int] = {}
     for _ in range(n_determinizations):
-        det = determinize(obs, my_deck, opp_deck, rng)
+        opp = pick_opponent_deck(obs, opp_pool, opp_deck, rng)
+        det = determinize(obs, my_deck, opp, rng)
         try:
             root_state = search_begin(
                 obs,
@@ -235,6 +237,7 @@ def make_nn_mcts_agent(
     n_determinizations: int = 4,
     c_puct: float = 1.5,
     fallback: Agent | None = None,
+    opp_pool: list[list[int]] | None = None,
 ) -> Agent:
     """NN 誘導 MCTS（PUCT）エージェントを生成する.
 
@@ -259,6 +262,7 @@ def make_nn_mcts_agent(
             n_determinizations,
             c_puct,
             fallback,
+            opp_pool,
         )
         if not visits:
             return heuristic(obs, rng)

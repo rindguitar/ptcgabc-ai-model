@@ -31,7 +31,7 @@ from cg.api import (
     search_release,
     search_step,
 )
-from determinize import determinize
+from determinize import determinize, pick_opponent_deck
 
 # MCTS で深掘りする選択タイプ（戦略的な pick-one）。それ以外は rollout 方策に委譲。
 _MCTS_SELECT_TYPES = (SelectType.MAIN, SelectType.ATTACK)
@@ -220,6 +220,7 @@ def make_ismcts_agent(
     min_visits: int = 15,
     select_margin: float = 0.05,
     rollout_policy: Agent | None = None,
+    opp_pool: list[list[int]] | None = None,
 ) -> Agent:
     """ISMCTS エージェントを生成する.
 
@@ -281,7 +282,8 @@ def make_ismcts_agent(
         deadline = move_start + budget
         n_det = 0
         while perf_counter() < deadline:
-            det = determinize(obs, my_deck, opp_deck, rng)
+            opp = pick_opponent_deck(obs, opp_pool, opp_deck, rng)
+            det = determinize(obs, my_deck, opp, rng)
             try:
                 root_state = search_begin(
                     obs,

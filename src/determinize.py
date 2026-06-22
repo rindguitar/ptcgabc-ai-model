@@ -51,6 +51,31 @@ def _draw(
     return picked, list(rem.elements())
 
 
+def pick_opponent_deck(
+    obs: Observation,
+    candidate_decks: list[list[int]] | None,
+    fallback_deck: list[int],
+    rng: random.Random,
+) -> list[int]:
+    """相手デッキを推定する.
+
+    観測で見えている相手のカード（捨て札・場）と**矛盾しない候補デッキ**を candidate_decks
+    から選ぶ（複数あれば無作為）。一致候補が無い（未知デッキ）なら fallback_deck（通常は
+    自分のデッキ＝ミラー仮定）を返す。→ 既知アーキタイプには当たり、未知でも従来どおり＝悪化しない。
+    """
+    st = obs.current
+    if st is None or not candidate_decks:
+        return fallback_deck
+    opp = st.players[1 - st.yourIndex]
+    seen = Counter(_zone_card_ids(opp, include_hand=False))
+    consistent = [
+        d
+        for d in candidate_decks
+        if all(Counter(d).get(c, 0) >= k for c, k in seen.items())
+    ]
+    return rng.choice(consistent) if consistent else fallback_deck
+
+
 def determinize(
     obs: Observation,
     my_deck: list[int],
