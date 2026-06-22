@@ -36,11 +36,31 @@ def _read_deck_csv(path: str) -> list[int]:
     return ids
 
 
+def _load_opp_pool(dir_path: str) -> list[list[int]]:
+    """相手候補デッキ群（60枚 CSV）を dir から読む。無ければ /kaggle 提出パスにフォールバック."""
+    import glob
+
+    if not os.path.isdir(dir_path):
+        alt = "/kaggle_simulations/agent/" + os.path.basename(dir_path)
+        if os.path.isdir(alt):
+            dir_path = alt
+    pool = []
+    for p in sorted(glob.glob(os.path.join(dir_path, "*.csv"))):
+        try:
+            d = [int(x) for x in open(p).read().splitlines() if x.strip()]
+        except ValueError:
+            continue
+        if len(d) == DECK_SIZE:
+            pool.append(d)
+    return pool
+
+
 def make_kaggle_agent(
     policy: str = "ismcts",
     deck: list[int] | None = None,
     deck_path: str = "deck.csv",
     opp_deck: list[int] | None = None,
+    opp_pool_dir: str | None = None,
     meta=None,
     seed: int = 0,
     game_budget: float | None = 540.0,
@@ -53,11 +73,13 @@ def make_kaggle_agent(
         policy: "ismcts" / "heuristic" / "random"。
         deck: 自分のデッキ（None なら deck_path から読む）。
         opp_deck: 相手デッキの事前分布（None なら deck を流用）。
+        opp_pool_dir: 相手候補デッキ群のディレクトリ（指定すると観測整合で相手デッキを推定）。
         game_budget/time_budget: ISMCTS の時間管理（game_budget 優先）。
     """
     meta = meta or load_card_meta()
     deck = list(deck) if deck is not None else _read_deck_csv(deck_path)
     opp_deck = list(opp_deck) if opp_deck is not None else list(deck)
+    opp_pool = _load_opp_pool(opp_pool_dir) if opp_pool_dir else None
     rng = random.Random(seed)
 
     if policy == "heuristic":
@@ -77,6 +99,7 @@ def make_kaggle_agent(
             opp_deck,
             time_budget=time_budget,
             game_budget=game_budget,
+            opp_pool=opp_pool,
             **policy_kwargs,
         )
     else:

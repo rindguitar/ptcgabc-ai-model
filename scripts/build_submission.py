@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import os
 import re
 import shutil
@@ -50,8 +51,11 @@ for _p in ("/kaggle_simulations/agent", "."):
 # 我々のモジュールは package ptcgbot に入れてある（汎用名の衝突回避）。
 from ptcgbot.submission import make_kaggle_agent
 
+# opp_decks/ の候補デッキで相手デッキを観測整合に推定（無ければミラー仮定にフォールバック）。
 # 1 試合 600 秒の累積クロック（remainingOverageTime）に安全マージンを見て 540 秒で運用する。
-agent = make_kaggle_agent("ismcts", deck_path="deck.csv", game_budget=540.0)
+agent = make_kaggle_agent(
+    "ismcts", deck_path="deck.csv", opp_pool_dir="opp_decks", game_budget=540.0
+)
 '''
 
 
@@ -79,6 +83,19 @@ def build(deck_path: str, out_tar: str) -> tuple[str, list[str]]:
         ignore=shutil.ignore_patterns("__pycache__"),
     )
     shutil.copy(deck_path, os.path.join(build_dir, "deck.csv"))
+
+    # 相手候補デッキ群（観測整合の相手デッキ推定用）。中立名で同梱（Pokémon 名を避ける）。
+    opp_dir = os.path.join(build_dir, "opp_decks")
+    os.makedirs(opp_dir)
+    idx = 0
+    for p in sorted(glob.glob(os.path.join(ROOT, "data", "*.csv"))):
+        try:
+            d = [int(x) for x in open(p).read().splitlines() if x.strip()]
+        except ValueError:
+            continue
+        if len(d) == 60:
+            shutil.copy(p, os.path.join(opp_dir, f"opp_{idx}.csv"))
+            idx += 1
 
     os.makedirs(os.path.dirname(out_tar) or ".", exist_ok=True)
     names = sorted(os.listdir(build_dir))
