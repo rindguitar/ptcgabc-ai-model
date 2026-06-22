@@ -21,12 +21,25 @@ RUN     := $(COMPOSE) run --rm dev
 
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
+        league league-resume league-overnight league-1h \
         build rebuild shell jupyter gpu-check exec up down clean
+
+# --- デッキリーグの既定パラメータ（make 変数で上書き可） --------------------
+# 例: make league LEAGUE_GAMES=32 LEAGUE_ITERS=16
+# LEAGUE_ARGS は任意の追加フラグ（例: LEAGUE_ARGS=--resume）。
+LEAGUE_CAP     ?= 12
+LEAGUE_ITERS   ?= 12
+LEAGUE_GAMES   ?= 24
+LEAGUE_POP     ?= 16
+LEAGUE_GENS    ?= 8
+LEAGUE_SEED    ?= 0
+LEAGUE_PLATEAU ?= 4
+LEAGUE_ARGS    ?=
 
 # --- ヘルプ -----------------------------------------------------------------
 help: ## このヘルプを表示
 	@echo "PTCG AI - make ターゲット一覧:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| sort \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
@@ -56,6 +69,26 @@ bench: ## baseline 評価（ヒューリスティック vs ランダム・100試
 
 # まとめて品質チェック（Lint + フォーマット差分 + テスト）。
 check: lint fmt-check test ## lint・fmt-check・test を順に実行
+
+# === デッキリーグ（bounded double-oracle） ================================
+# 出力: models/champion_deck.csv / チェックポイント: models/league/state.json（追跡外）
+league: ## リーグ実行（上書き可: make league LEAGUE_GAMES=32 LEAGUE_ITERS=16）
+	$(PY) src/league.py --cap $(LEAGUE_CAP) --iters $(LEAGUE_ITERS) \
+		--games $(LEAGUE_GAMES) --pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) \
+		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) $(LEAGUE_ARGS)
+
+league-resume: ## チェックポイントから続行（make league-resume LEAGUE_ITERS=4）
+	$(PY) src/league.py --cap $(LEAGUE_CAP) --iters $(LEAGUE_ITERS) \
+		--games $(LEAGUE_GAMES) --pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) \
+		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) --resume $(LEAGUE_ARGS)
+
+league-overnight: ## 一晩用プリセット（約4.2h: games32/pop24/gens12/cap12/iters16・早期停止なし）
+	$(PY) src/league.py --cap 12 --iters 16 --games 32 --pop 24 --gens 12 \
+		--plateau 99 --seed $(LEAGUE_SEED) $(LEAGUE_ARGS)
+
+league-1h: ## 約1時間プリセット（games24/pop16/gens8/cap12/iters12）
+	$(PY) src/league.py --cap 12 --iters 12 --games 24 --pop 16 --gens 8 \
+		--plateau 99 --seed $(LEAGUE_SEED) $(LEAGUE_ARGS)
 
 # === Docker 実行（重い作業 / GPU = Phase 3） ===============================
 # build は数分〜10 分以上かかるため、原則ユーザーが手動実行する（CLAUDE.md 参照）。

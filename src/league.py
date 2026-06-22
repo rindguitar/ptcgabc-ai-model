@@ -230,6 +230,12 @@ def main() -> None:
     parser.add_argument("--gens", type=int, default=6, help="evolve の世代数")
     parser.add_argument("--seed", type=int, default=0, help="乱数シード")
     parser.add_argument(
+        "--plateau",
+        type=int,
+        default=4,
+        help="最悪ケースが改善しない反復がこの数に達したら早期停止（大きくすると止めない）",
+    )
+    parser.add_argument(
         "--out", default="models/champion_deck.csv", help="出力チャンピオン CSV"
     )
     parser.add_argument(
@@ -260,6 +266,7 @@ def main() -> None:
         cap=args.cap,
         iterations=args.iters,
         games_per_opp=args.games,
+        plateau=args.plateau,
         evolve_kwargs={"pop_size": args.pop, "generations": args.gens},
         verbose=True,
         checkpoint_path=args.checkpoint,
