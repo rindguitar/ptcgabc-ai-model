@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
+import os
 import random
 from collections import Counter
 
@@ -59,6 +61,33 @@ def worst_case(
     )
 
 
+def _rng_state_to_json(rng: random.Random) -> list:
+    """random.Random の内部状態を JSON 化可能な形にする."""
+    version, keys, gauss = rng.getstate()
+    return [version, list(keys), gauss]
+
+
+def _rng_state_from_json(state: list):
+    """JSON から random.Random の内部状態（タプル）を復元する."""
+    version, keys, gauss = state
+    return (version, tuple(keys), gauss)
+
+
+def save_state(path: str, state: dict) -> None:
+    """リーグ状態を JSON で原子的に保存（tmp→replace。models/ 配下・追跡外）."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f)
+    os.replace(tmp, path)  # 書き込み中クラッシュでも本体は壊れない
+
+
+def load_state(path: str) -> dict:
+    """保存済みリーグ状態を読み込む."""
+    with open(path) as f:
+        return json.load(f)
+
+
 def run_league(
     seed_decks: list[list[int]],
     meta: CardMeta | None = None,
@@ -72,6 +101,8 @@ def run_league(
     agent: Agent | None = None,
     evolve_kwargs: dict | None = None,
     verbose: bool = False,
+    checkpoint_path: str | None = None,
+    resume: bool = False,
 ) -> dict:
     """bounded double-oracle リーグを回し、最も頑健なチャンピオンデッキを返す.
 
@@ -86,13 +117,32 @@ def run_league(
 
     pinned = [list(d) for d in seed_decks]  # 実メタ: 固定の試験官
     max_evolved = max(1, cap - len(pinned))
-    evolved: list[list[int]] = []
-    archive = [list(d) for d in seed_decks]  # これまで見た全デッキ
-    champions: list[list[int]] = []  # 各反復の候補（最終選抜用）
-    history = []
-    best_score, no_improve = -1.0, 0
 
-    for it in range(iterations):
+    # 状態の初期化 or チェックポイントからの復元
+    if resume and checkpoint_path and os.path.exists(checkpoint_path):
+        st = load_state(checkpoint_path)
+        evolved = st["evolved"]
+        archive = st["archive"]
+        champions = st["champions"]
+        history = st["history"]
+        best_score = st["best_score"]
+        no_improve = st["no_improve"]
+        done_iters = st["done_iters"]
+        if st.get("rng_state"):
+            rng.setstate(_rng_state_from_json(st["rng_state"]))
+        if verbose:
+            print(
+                f"レジューム: 反復 {done_iters} から再開 "
+                f"(evolved={len(evolved)}, archive={len(archive)})"
+            )
+    else:
+        evolved = []
+        archive = [list(d) for d in seed_decks]  # これまで見た全デッキ
+        champions = []  # 各反復の候補（最終選抜用）
+        history = []
+        best_score, no_improve, done_iters = -1.0, 0, 0
+
+    for _ in range(iterations):
         pool = pinned + evolved
         res = evolve(
             pool,
@@ -112,24 +162,46 @@ def run_league(
         if len(evolved) > max_evolved:
             evolved.pop(_most_redundant_index(evolved))
 
-        history.append(
-            {"iter": it, "cand_worstcase_vs_pool": score, "pool_size": len(pool)}
-        )
-        if verbose:
-            print(
-                f"iter {it}: cand worst-case vs pool={score:.3f} "
-                f"pool={len(pool)} evolved={len(evolved)} archive={len(archive)}"
-            )
-
-        # プラトー検出
+        done_iters += 1
         if score > best_score + 1e-9:
             best_score, no_improve = score, 0
         else:
             no_improve += 1
-            if no_improve >= plateau:
-                if verbose:
-                    print(f"プラトー {plateau} 反復 → 停止")
-                break
+        history.append(
+            {
+                "iter": done_iters - 1,
+                "cand_worstcase_vs_pool": score,
+                "pool_size": len(pool),
+            }
+        )
+        if verbose:
+            print(
+                f"iter {done_iters - 1}: cand worst-case vs pool={score:.3f} "
+                f"pool={len(pool)} evolved={len(evolved)} archive={len(archive)}"
+            )
+
+        # 各反復後にチェックポイント保存（クラッシュ耐性・再開可能に）
+        if checkpoint_path:
+            save_state(
+                checkpoint_path,
+                {
+                    "evolved": evolved,
+                    "archive": archive,
+                    "champions": champions,
+                    "history": history,
+                    "best_score": best_score,
+                    "no_improve": no_improve,
+                    "done_iters": done_iters,
+                    "seeds_count": len(pinned),
+                    "rng_state": _rng_state_to_json(rng),
+                },
+            )
+
+        # プラトー検出
+        if no_improve >= plateau:
+            if verbose:
+                print(f"プラトー {plateau} 反復 → 停止")
+            break
 
     # 最終選抜: 候補を蓄積プール全体への最悪ケースで再評価し最良を選ぶ
     scored = [(worst_case(d, archive, agent, rng, eval_games), d) for d in champions]
@@ -160,11 +232,24 @@ def main() -> None:
     parser.add_argument(
         "--out", default="models/champion_deck.csv", help="出力チャンピオン CSV"
     )
+    parser.add_argument(
+        "--checkpoint",
+        default="models/league/state.json",
+        help="チェックポイントの保存先（各反復後に保存・追跡外）",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="チェックポイントから続きを再開する（--iters は今回の追加反復数）",
+    )
     args = parser.parse_args()
 
     seed_paths = args.seeds or sorted(glob.glob("data/*.csv"))
     seeds = _load_pool(seed_paths)
-    print(f"seed {len(seeds)} デッキでリーグ開始（cap={args.cap}, iters={args.iters}）")
+    mode = "再開" if args.resume else "新規"
+    print(
+        f"seed {len(seeds)} デッキでリーグ{mode}（cap={args.cap}, 追加iters={args.iters}）"
+    )
 
     rng = random.Random(args.seed)
     meta = load_card_meta()
@@ -177,6 +262,8 @@ def main() -> None:
         games_per_opp=args.games,
         evolve_kwargs={"pop_size": args.pop, "generations": args.gens},
         verbose=True,
+        checkpoint_path=args.checkpoint,
+        resume=args.resume,
     )
 
     print(

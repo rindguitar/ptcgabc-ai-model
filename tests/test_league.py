@@ -17,7 +17,12 @@ if not os.path.exists(DECK):
 
 from cards import load_card_meta  # noqa: E402
 from deck import DECK_SIZE, is_legal, load_deck, mutate  # noqa: E402
-from league import _most_redundant_index, deck_similarity, run_league  # noqa: E402
+from league import (  # noqa: E402
+    _most_redundant_index,
+    deck_similarity,
+    load_state,
+    run_league,
+)
 
 
 @pytest.fixture(scope="module")
@@ -70,3 +75,47 @@ def test_run_league_returns_legal_champion(deck, meta):
     assert is_legal(champ, deck)
     assert result["archive_size"] >= 2
     assert 0.0 <= result["champion_worstcase_vs_archive"] <= 1.0
+
+
+def test_checkpoint_and_resume(deck, meta, tmp_path):
+    """チェックポイント保存と --resume での続行（done_iters と archive が増える）."""
+    cp = str(tmp_path / "league" / "state.json")
+    kw = {
+        "pop_size": 4,
+        "generations": 2,
+        "mutations_per_child": 1,
+        "elite": 2,
+    }
+    deck2 = mutate(deck, deck, random.Random(1))
+
+    # 1回目: 1反復 → チェックポイント保存
+    run_league(
+        [deck, deck2],
+        meta,
+        rng=random.Random(0),
+        cap=3,
+        iterations=1,
+        games_per_opp=4,
+        plateau=99,
+        checkpoint_path=cp,
+        evolve_kwargs=kw,
+    )
+    st1 = load_state(cp)
+    assert st1["done_iters"] == 1
+
+    # 2回目: resume で 1反復追加 → done_iters=2, archive が増える
+    run_league(
+        [deck, deck2],
+        meta,
+        rng=random.Random(0),
+        cap=3,
+        iterations=1,
+        games_per_opp=4,
+        plateau=99,
+        checkpoint_path=cp,
+        resume=True,
+        evolve_kwargs=kw,
+    )
+    st2 = load_state(cp)
+    assert st2["done_iters"] == 2
+    assert len(st2["archive"]) > len(st1["archive"])
