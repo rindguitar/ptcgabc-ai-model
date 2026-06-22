@@ -28,14 +28,17 @@ MODULES = ["submission.py", "ismcts.py", "determinize.py", "agents.py", "cards.p
 MAIN_PY = '''\
 """Kaggle 提出エントリ: 公式形式 agent(obs_dict) -> list[int] を公開する。"""
 
-import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# kaggle_environments は main.py を exec で読み込むため __file__ が無い。
+# 提出物の展開先（固定パス）と cwd を import path に追加して同梱モジュールを読めるようにする。
+for _p in ("/kaggle_simulations/agent", "."):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from submission import make_kaggle_agent
 
-# 1 試合 600 秒の累積クロックに安全マージンを見て 540 秒で運用する。
+# 1 試合 600 秒の累積クロック（remainingOverageTime）に安全マージンを見て 540 秒で運用する。
 agent = make_kaggle_agent("ismcts", deck_path="deck.csv", game_budget=540.0)
 '''
 
