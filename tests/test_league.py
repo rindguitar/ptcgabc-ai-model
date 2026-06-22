@@ -77,6 +77,31 @@ def test_run_league_returns_legal_champion(deck, meta):
     assert 0.0 <= result["champion_worstcase_vs_archive"] <= 1.0
 
 
+def test_incumbent_is_final_candidate(deck, meta):
+    """incumbent（前チャンピオン）を渡すと最終選抜候補に含まれ、retained を返す."""
+    deck2 = mutate(deck, deck, random.Random(1))
+    res = run_league(
+        [deck, deck2],
+        meta,
+        rng=random.Random(0),
+        cap=3,
+        iterations=1,
+        games_per_opp=4,
+        plateau=9,
+        evolve_kwargs={
+            "pop_size": 4,
+            "generations": 2,
+            "mutations_per_child": 1,
+            "elite": 2,
+        },
+        incumbent=deck,
+    )
+    assert "retained" in res
+    assert isinstance(res["retained"], bool)
+    assert len(res["champion"]) == DECK_SIZE
+    assert is_legal(res["champion"], deck)
+
+
 def test_checkpoint_and_resume(deck, meta, tmp_path):
     """チェックポイント保存と --resume での続行（done_iters と archive が増える）."""
     cp = str(tmp_path / "league" / "state.json")

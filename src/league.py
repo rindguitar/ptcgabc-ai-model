@@ -103,11 +103,15 @@ def run_league(
     verbose: bool = False,
     checkpoint_path: str | None = None,
     resume: bool = False,
+    incumbent: list[int] | None = None,
 ) -> dict:
     """bounded double-oracle リーグを回し、最も頑健なチャンピオンデッキを返す.
 
+    incumbent（前チャンピオン）を渡すと最終選抜の候補に含めるため、出力チャンピオンは
+    前チャンピオン以上の評価が保証される（測定ノイズの範囲で**非弱化の世代更新**）。
+
     Returns:
-        dict: champion デッキ、全プール最悪ケース勝率、保管庫サイズ、履歴。
+        dict: champion デッキ、全プール最悪ケース勝率、保管庫サイズ、履歴、retained。
     """
     rng = rng or random.Random(0)
     meta = meta or load_card_meta()
@@ -203,15 +207,25 @@ def run_league(
                 print(f"プラトー {plateau} 反復 → 停止")
             break
 
-    # 最終選抜: 候補を蓄積プール全体への最悪ケースで再評価し最良を選ぶ
-    scored = [(worst_case(d, archive, agent, rng, eval_games), d) for d in champions]
+    # 最終選抜: 進化候補 ＋ 前チャンピオン(incumbent) を蓄積プール全体への
+    # 最悪ケースで再評価し最良を選ぶ。incumbent を候補に含めることで非弱化を保証する。
+    candidates = list(champions)
+    if incumbent is not None:
+        candidates.append(list(incumbent))
+    if not candidates:
+        raise ValueError(
+            "最終選抜の候補がありません（iterations>=1 か incumbent を指定）"
+        )
+    scored = [(worst_case(d, archive, agent, rng, eval_games), d) for d in candidates]
     scored.sort(key=lambda x: x[0], reverse=True)
     best_wc, best_deck = scored[0]
+    retained = incumbent is not None and best_deck == list(incumbent)
     return {
         "champion": best_deck,
         "champion_worstcase_vs_archive": best_wc,
         "archive_size": len(archive),
         "history": history,
+        "retained": retained,
     }
 
 
@@ -222,6 +236,12 @@ def main() -> None:
         nargs="+",
         default=None,
         help="seed（固定）デッキ CSV 群（未指定なら data/*.csv の60枚デッキ）",
+    )
+    parser.add_argument(
+        "--extra-seeds",
+        nargs="+",
+        default=None,
+        help="seed に追加で固定する CSV（例: 既存チャンピオン models/champion_deck.csv）",
     )
     parser.add_argument("--cap", type=int, default=10, help="プール上限 K")
     parser.add_argument("--iters", type=int, default=8, help="リーグ反復数")
@@ -252,10 +272,26 @@ def main() -> None:
 
     seed_paths = args.seeds or sorted(glob.glob("data/*.csv"))
     seeds = _load_pool(seed_paths)
+    if args.extra_seeds:
+        # 既存チャンピオン等を固定の試験官として追加（重複は除外）
+        for extra in _load_pool(args.extra_seeds):
+            if extra not in seeds:
+                seeds.append(extra)
     mode = "再開" if args.resume else "新規"
     print(
-        f"seed {len(seeds)} デッキでリーグ{mode}（cap={args.cap}, 追加iters={args.iters}）"
+        f"seed {len(seeds)} デッキでリーグ{mode}"
+        f"（cap={args.cap}, 追加iters={args.iters}, extra={len(args.extra_seeds or [])}）"
     )
+
+    # 既存チャンピオン（出力先）があれば最終選抜の候補に入れ、非弱化の世代更新にする
+    incumbent = None
+    if os.path.exists(args.out):
+        try:
+            incumbent = _load_pool([args.out])[0]
+        except (ValueError, IndexError):
+            incumbent = None
+    if incumbent is not None:
+        print("前チャンピオンを最終選抜候補に含めます（非弱化保証）")
 
     rng = random.Random(args.seed)
     meta = load_card_meta()
@@ -271,11 +307,17 @@ def main() -> None:
         verbose=True,
         checkpoint_path=args.checkpoint,
         resume=args.resume,
+        incumbent=incumbent,
     )
 
+    status = (
+        "据え置き（前チャンピオンが最良）"
+        if result.get("retained")
+        else "更新（新チャンピオン）"
+    )
     print(
-        f"\nチャンピオン: 全プール最悪ケース勝率={result['champion_worstcase_vs_archive']:.3f} "
-        f"(archive {result['archive_size']} デッキ)"
+        f"\nチャンピオン[{status}]: 全プール最悪ケース勝率="
+        f"{result['champion_worstcase_vs_archive']:.3f} (archive {result['archive_size']} デッキ)"
     )
     if not is_legal(result["champion"], seeds[0]):
         print("警告: チャンピオンが非合法（保存しません）")

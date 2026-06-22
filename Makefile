@@ -35,6 +35,10 @@ LEAGUE_GENS    ?= 8
 LEAGUE_SEED    ?= 0
 LEAGUE_PLATEAU ?= 4
 LEAGUE_ARGS    ?=
+# 既存チャンピオンがあれば自動で固定の試験官(seed)に取り込む（無ければメタのみ）。
+# メタのみで回したいときは make league LEAGUE_EXTRA= で解除。
+LEAGUE_EXTRA   ?= $(wildcard models/champion_deck.csv)
+_EXTRA_FLAG     = $(if $(LEAGUE_EXTRA),--extra-seeds $(LEAGUE_EXTRA),)
 
 # --- ヘルプ -----------------------------------------------------------------
 help: ## このヘルプを表示
@@ -75,20 +79,20 @@ check: lint fmt-check test ## lint・fmt-check・test を順に実行
 league: ## リーグ実行（上書き可: make league LEAGUE_GAMES=32 LEAGUE_ITERS=16）
 	$(PY) src/league.py --cap $(LEAGUE_CAP) --iters $(LEAGUE_ITERS) \
 		--games $(LEAGUE_GAMES) --pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) \
-		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) $(LEAGUE_ARGS)
+		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
 league-resume: ## チェックポイントから続行（make league-resume LEAGUE_ITERS=4）
 	$(PY) src/league.py --cap $(LEAGUE_CAP) --iters $(LEAGUE_ITERS) \
 		--games $(LEAGUE_GAMES) --pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) \
-		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) --resume $(LEAGUE_ARGS)
+		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) --resume $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
 league-overnight: ## 一晩用プリセット（約4.2h: games32/pop24/gens12/cap12/iters16・早期停止なし）
 	$(PY) src/league.py --cap 12 --iters 16 --games 32 --pop 24 --gens 12 \
-		--plateau 99 --seed $(LEAGUE_SEED) $(LEAGUE_ARGS)
+		--plateau 99 --seed $(LEAGUE_SEED) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
 league-1h: ## 約1時間プリセット（games24/pop16/gens8/cap12/iters12）
 	$(PY) src/league.py --cap 12 --iters 12 --games 24 --pop 16 --gens 8 \
-		--plateau 99 --seed $(LEAGUE_SEED) $(LEAGUE_ARGS)
+		--plateau 99 --seed $(LEAGUE_SEED) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
 # === Docker 実行（重い作業 / GPU = Phase 3） ===============================
 # build は数分〜10 分以上かかるため、原則ユーザーが手動実行する（CLAUDE.md 参照）。
