@@ -184,6 +184,48 @@ def _simulate(
         nd.w += value
 
 
+def aggregate_visits(
+    obs: Observation,
+    my_deck: list[int],
+    opp_deck: list[int],
+    evaluator: Evaluator,
+    rng: random.Random,
+    n_simulations: int,
+    n_determinizations: int,
+    c_puct: float,
+    fallback: Agent,
+) -> dict[tuple[int, ...], int]:
+    """determinization 横断で PUCT を回し、根の行動別訪問数を集計して返す.
+
+    返り値のキーは行動（option index のタプル）。self-play の方策ターゲット π や
+    エージェントの行動選択に使う。
+    """
+    visits: dict[tuple[int, ...], int] = {}
+    for _ in range(n_determinizations):
+        det = determinize(obs, my_deck, opp_deck, rng)
+        try:
+            root_state = search_begin(
+                obs,
+                det["your_deck"],
+                det["your_prize"],
+                det["opponent_deck"],
+                det["opponent_prize"],
+                det["opponent_hand"],
+                det["opponent_active"],
+                False,
+            )
+        except (ValueError, IndexError):
+            continue
+        root = _Node(root_state, obs.current.yourIndex)
+        sims = max(1, n_simulations // n_determinizations)
+        for _ in range(sims):
+            _simulate(root, c_puct, evaluator, rng, fallback)
+        for key, child in root.children.items():
+            visits[key] = visits.get(key, 0) + child.n
+        search_end()
+    return visits
+
+
 def make_nn_mcts_agent(
     meta: CardMeta,
     my_deck: list[int],
@@ -207,35 +249,19 @@ def make_nn_mcts_agent(
         sel = obs.select
         if sel is None or len(sel.option) <= 1 or sel.type not in _MCTS_SELECT_TYPES:
             return heuristic(obs, rng)
-
-        # determinization 横断で訪問数を集計
-        visits: dict[tuple[int, ...], int] = {}
-        for _ in range(n_determinizations):
-            det = determinize(obs, my_deck, opp_deck, rng)
-            try:
-                root_state = search_begin(
-                    obs,
-                    det["your_deck"],
-                    det["your_prize"],
-                    det["opponent_deck"],
-                    det["opponent_prize"],
-                    det["opponent_hand"],
-                    det["opponent_active"],
-                    False,
-                )
-            except (ValueError, IndexError):
-                continue
-            root = _Node(root_state, obs.current.yourIndex)
-            sims = max(1, n_simulations // n_determinizations)
-            for _ in range(sims):
-                _simulate(root, c_puct, evaluator, rng, fallback)
-            for key, child in root.children.items():
-                visits[key] = visits.get(key, 0) + child.n
-            search_end()
-
+        visits = aggregate_visits(
+            obs,
+            my_deck,
+            opp_deck,
+            evaluator,
+            rng,
+            n_simulations,
+            n_determinizations,
+            c_puct,
+            fallback,
+        )
         if not visits:
             return heuristic(obs, rng)
-        best_key = max(visits, key=lambda k: visits[k])
-        return list(best_key)
+        return list(max(visits, key=lambda k: visits[k]))
 
     return agent
