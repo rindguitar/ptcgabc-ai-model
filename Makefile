@@ -32,7 +32,9 @@ LEAGUE_ITERS   ?= 12
 LEAGUE_GAMES   ?= 24
 LEAGUE_POP     ?= 16
 LEAGUE_GENS    ?= 8
-LEAGUE_SEED    ?= 0
+# 既定は実行ごとにランダム（素のコマンドを繰り返すと別探索→incumbent が最良を保持し世代更新）。
+# 再現したいときは make league LEAGUE_SEED=0 のように固定する。
+LEAGUE_SEED    ?= $(shell python3 -c 'import random;print(random.randrange(2**31))')
 LEAGUE_PLATEAU ?= 4
 LEAGUE_ARGS    ?=
 # 既存チャンピオンがあれば自動で固定の試験官(seed)に取り込む（無ければメタのみ）。
