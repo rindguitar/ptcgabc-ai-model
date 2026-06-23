@@ -17,7 +17,14 @@ if not os.path.exists(DECK):
 
 from agents import make_heuristic_agent  # noqa: E402
 from cards import load_card_meta  # noqa: E402
-from deck import DECK_SIZE, composition, is_legal, load_deck, mutate  # noqa: E402
+from deck import (  # noqa: E402
+    DECK_SIZE,
+    composition,
+    is_legal,
+    load_deck,
+    mutate,
+    random_legal_deck,
+)
 from harness import evaluate_decks  # noqa: E402
 
 
@@ -40,6 +47,14 @@ def test_illegal_decks(deck):
     """枚数違反・ポケモン不在のデッキは非合法."""
     assert not is_legal(deck[:59], deck)  # 59 枚
     assert not is_legal([1] * DECK_SIZE, deck)  # 基本エネ60枚（たね不在）
+
+
+def test_random_legal_deck(deck):
+    """多数変異した合法デッキが 60枚・合法で、元と十分異なる."""
+    rng = random.Random(0)
+    d = random_legal_deck(deck, rng, swaps=15)
+    assert len(d) == DECK_SIZE
+    assert is_legal(d, deck)
 
 
 def test_mutate_keeps_legal(deck):

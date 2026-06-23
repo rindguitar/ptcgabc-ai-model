@@ -248,6 +248,18 @@ def main() -> None:
     parser.add_argument("--games", type=int, default=10, help="相手1体あたりの対戦数")
     parser.add_argument("--pop", type=int, default=12, help="evolve の集団サイズ")
     parser.add_argument("--gens", type=int, default=6, help="evolve の世代数")
+    parser.add_argument(
+        "--max-swaps",
+        type=int,
+        default=1,
+        help="変異枚数の上限（>1で可変＝遠方も探索）",
+    )
+    parser.add_argument(
+        "--explore",
+        type=float,
+        default=0.0,
+        help="多様性注入の割合（0..1・別軸を探索）",
+    )
     parser.add_argument("--seed", type=int, default=0, help="乱数シード")
     parser.add_argument(
         "--plateau",
@@ -303,7 +315,12 @@ def main() -> None:
         iterations=args.iters,
         games_per_opp=args.games,
         plateau=args.plateau,
-        evolve_kwargs={"pop_size": args.pop, "generations": args.gens},
+        evolve_kwargs={
+            "pop_size": args.pop,
+            "generations": args.gens,
+            "max_swaps": args.max_swaps,
+            "explore_frac": args.explore,
+        },
         verbose=True,
         checkpoint_path=args.checkpoint,
         resume=args.resume,

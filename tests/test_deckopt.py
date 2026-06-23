@@ -63,3 +63,22 @@ def test_evolve_returns_legal_deck(deck, meta):
     assert is_legal(best, deck)
     assert "min" in result["fitness"]
     assert len(result["history"]) == 2
+
+
+def test_evolve_with_exploration(deck, meta):
+    """大変異＋多様性注入（探索モード）でも 60枚・合法のデッキを返す."""
+    rng = random.Random(0)
+    result = evolve(
+        [deck],
+        meta,
+        rng=rng,
+        pop_size=4,
+        generations=2,
+        games_per_opp=4,
+        elite=2,
+        mutations_per_child=1,
+        max_swaps=6,
+        explore_frac=0.5,
+    )
+    assert len(result["deck"]) == DECK_SIZE
+    assert is_legal(result["deck"], deck)

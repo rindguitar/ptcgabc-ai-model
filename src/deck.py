@@ -61,6 +61,22 @@ def mutate(
     return list(deck)
 
 
+def random_legal_deck(
+    ref_deck: list[int],
+    rng: random.Random,
+    swaps: int = 40,
+    pool: list[int] = CARD_POOL,
+) -> list[int]:
+    """既知の合法デッキから多数回変異して、別アーキタイプ寄りの合法デッキを作る.
+
+    多様性注入（探索）用。ゼロから合法デッキを組むより堅実（各変異をエンジンで合法性検証）。
+    """
+    deck = list(ref_deck)
+    for _ in range(swaps):
+        deck = mutate(deck, ref_deck, rng, pool)
+    return deck
+
+
 def composition(deck: list[int], meta: CardMeta) -> dict[str, int]:
     """デッキの種別構成（ポケモン/グッズ/道具/サポート/スタジアム/エネ）を数える."""
     counts = Counter(meta.card_type.get(cid) for cid in deck)

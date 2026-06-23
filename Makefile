@@ -21,7 +21,7 @@ RUN     := $(COMPOSE) run --rm dev
 
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
-        league league-resume league-overnight league-1h submission train \
+        league league-resume league-overnight league-1h league-explore submission train \
         build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキリーグの既定パラメータ（make 変数で上書き可） --------------------
@@ -95,6 +95,11 @@ league-overnight: ## 一晩用プリセット（約4.2h: games32/pop24/gens12/ca
 league-1h: ## 約1時間プリセット（games24/pop16/gens8/cap12/iters12）
 	$(PY) src/league.py --cap 12 --iters 12 --games 24 --pop 16 --gens 8 \
 		--plateau 99 --seed $(LEAGUE_SEED) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
+
+league-explore: ## 多軸探索リーグ（大変異＋多様性注入で別アーキタイプ/カードを探す・非弱化は維持）
+	$(PY) src/league.py --cap 12 --iters $(LEAGUE_ITERS) --games $(LEAGUE_GAMES) \
+		--pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) --plateau 99 --seed $(LEAGUE_SEED) \
+		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
 # === Phase 3 学習（Docker・torch/GPU） =====================================
 TRAIN_ARGS ?=

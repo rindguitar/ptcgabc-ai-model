@@ -19,7 +19,7 @@ import sys
 
 from agents import Agent, make_heuristic_agent
 from cards import CardMeta, load_card_meta
-from deck import DECK_SIZE, is_legal, load_deck, mutate, save_deck
+from deck import DECK_SIZE, is_legal, load_deck, mutate, random_legal_deck, save_deck
 from harness import evaluate_decks
 
 
@@ -52,6 +52,26 @@ def _mutate_n(
     return d
 
 
+def _make_child(
+    parents: list[list[int]],
+    base: list[list[int]],
+    ref_deck: list[int],
+    rng: random.Random,
+    mutations_per_child: int,
+    max_swaps: int,
+    explore_frac: float,
+) -> list[int]:
+    """子デッキを生成する.
+
+    確率 explore_frac で**多様性注入**（多数変異で別アーキタイプ寄りの合法デッキ＝局所最適を脱出）。
+    それ以外は親を変異。max_swaps>1 のとき変異枚数を 1..max_swaps で可変にし、近所も遠方も探る。
+    """
+    if explore_frac > 0 and rng.random() < explore_frac:
+        return random_legal_deck(rng.choice(base), rng, swaps=max(20, max_swaps * 5))
+    n = rng.randint(1, max_swaps) if max_swaps > 1 else mutations_per_child
+    return _mutate_n(rng.choice(parents), ref_deck, rng, n)
+
+
 def evolve(
     pool: list[list[int]],
     meta: CardMeta | None = None,
@@ -63,12 +83,17 @@ def evolve(
     games_per_opp: int = 12,
     elite: int = 4,
     mutations_per_child: int = 2,
+    max_swaps: int = 1,
+    explore_frac: float = 0.0,
     objective: str = "min",
     agent: Agent | None = None,
     ref_deck: list[int] | None = None,
     verbose: bool = False,
 ) -> dict:
     """進化計算でプールへの最悪ケース（既定）勝率を最大化するデッキを探す.
+
+    max_swaps>1 で変異枚数を可変化（近所も遠方も探る）、explore_frac>0 で毎世代ランダムな
+    合法デッキを混ぜて多様な軸・カードを探索する（局所最適の脱出）。
 
     Returns:
         dict: best デッキと適応度、世代ごとの履歴。
@@ -79,9 +104,11 @@ def evolve(
     ref_deck = ref_deck or pool[0]
     base = seeds or list(pool)
 
-    # 初期集団: シード（既定はプール）から変異で散らす
+    # 初期集団: シードから変異＋多様性注入で散らす
     population = [
-        _mutate_n(rng.choice(base), ref_deck, rng, mutations_per_child)
+        _make_child(
+            base, base, ref_deck, rng, mutations_per_child, max_swaps, explore_frac
+        )
         for _ in range(pop_size)
     ]
 
@@ -108,12 +135,20 @@ def evolve(
                 f"gen {gen}: best {objective}={scored[0][0]:.3f} mean={scored[0][1]['mean']:.3f} per_opp={per}"
             )
 
-        # 次世代: エリート保存 + エリートからの変異
+        # 次世代: エリート保存 + 変異/多様性注入
         elites = [d for _, _, d in scored[:elite]]
         population = list(elites)
         while len(population) < pop_size:
             population.append(
-                _mutate_n(rng.choice(elites), ref_deck, rng, mutations_per_child)
+                _make_child(
+                    elites,
+                    base,
+                    ref_deck,
+                    rng,
+                    mutations_per_child,
+                    max_swaps,
+                    explore_frac,
+                )
             )
 
     return {"deck": best_deck, "fitness": best_fit, "history": history}
