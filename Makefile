@@ -21,7 +21,8 @@ RUN     := $(COMPOSE) run --rm dev
 
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
-        league league-resume league-overnight league-1h league-explore submission train \
+        league league-resume league-overnight league-1h \
+        league-explore league-explore-1h league-explore-overnight submission train \
         build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキリーグの既定パラメータ（make 変数で上書き可） --------------------
@@ -41,6 +42,11 @@ LEAGUE_ARGS    ?=
 # メタのみで回したいときは make league LEAGUE_EXTRA= で解除。
 LEAGUE_EXTRA   ?= $(wildcard models/champion_deck.csv)
 _EXTRA_FLAG     = $(if $(LEAGUE_EXTRA),--extra-seeds $(LEAGUE_EXTRA),)
+# 探索パラメータ（既定OFF＝従来の1軸refine）。league/league-resume で変数指定すれば探索ON。
+# 例: make league LEAGUE_MAXSWAPS=12 LEAGUE_EXPLORE=0.3
+LEAGUE_MAXSWAPS ?= 1
+LEAGUE_EXPLORE  ?= 0
+_EXPLORE_FLAGS   = --max-swaps $(LEAGUE_MAXSWAPS) --explore $(LEAGUE_EXPLORE)
 
 # --- ヘルプ -----------------------------------------------------------------
 help: ## このヘルプを表示
@@ -78,15 +84,17 @@ check: lint fmt-check test ## lint・fmt-check・test を順に実行
 
 # === デッキリーグ（bounded double-oracle） ================================
 # 出力: models/champion_deck.csv / チェックポイント: models/league/state.json（追跡外）
-league: ## リーグ実行（上書き可: make league LEAGUE_GAMES=32 LEAGUE_ITERS=16）
+league: ## リーグ実行（上書き可: make league LEAGUE_GAMES=32 / 探索: LEAGUE_EXPLORE=0.3 LEAGUE_MAXSWAPS=12）
 	$(PY) src/league.py --cap $(LEAGUE_CAP) --iters $(LEAGUE_ITERS) \
 		--games $(LEAGUE_GAMES) --pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) \
-		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
+		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) \
+		$(_EXPLORE_FLAGS) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
 league-resume: ## チェックポイントから続行（make league-resume LEAGUE_ITERS=4）
 	$(PY) src/league.py --cap $(LEAGUE_CAP) --iters $(LEAGUE_ITERS) \
 		--games $(LEAGUE_GAMES) --pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) \
-		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) --resume $(_EXTRA_FLAG) $(LEAGUE_ARGS)
+		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) --resume \
+		$(_EXPLORE_FLAGS) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
 league-overnight: ## 一晩用プリセット（約4.2h: games32/pop24/gens12/cap12/iters16・早期停止なし）
 	$(PY) src/league.py --cap 12 --iters 16 --games 32 --pop 24 --gens 12 \
@@ -96,9 +104,19 @@ league-1h: ## 約1時間プリセット（games24/pop16/gens8/cap12/iters12）
 	$(PY) src/league.py --cap 12 --iters 12 --games 24 --pop 16 --gens 8 \
 		--plateau 99 --seed $(LEAGUE_SEED) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
-league-explore: ## 多軸探索リーグ（大変異＋多様性注入で別アーキタイプ/カードを探す・非弱化は維持）
+league-explore: ## 多軸探索リーグ（変数で iters/games 調整・大変異＋多様性注入・非弱化維持）
 	$(PY) src/league.py --cap 12 --iters $(LEAGUE_ITERS) --games $(LEAGUE_GAMES) \
 		--pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) --plateau 99 --seed $(LEAGUE_SEED) \
+		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
+
+league-explore-1h: ## 約1時間の探索プリセット（別アーキタイプ/カードを広く探す）
+	$(PY) src/league.py --cap 12 --iters 12 --games 24 --pop 16 --gens 8 \
+		--plateau 99 --seed $(LEAGUE_SEED) \
+		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
+
+league-explore-overnight: ## 一晩の探索プリセット（約4h・別アーキタイプ/カードを広く探す）
+	$(PY) src/league.py --cap 12 --iters 16 --games 32 --pop 24 --gens 12 \
+		--plateau 99 --seed $(LEAGUE_SEED) \
 		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
 # === Phase 3 学習（Docker・torch/GPU） =====================================
