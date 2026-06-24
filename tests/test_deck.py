@@ -86,6 +86,29 @@ def test_structured_deck_specified_color(deck, meta):
     assert meta.basic_energy_id[color] in d
 
 
+def test_structured_deck_includes_ability_pokemon(deck, meta):
+    """その色に特性持ちのたねがいれば、生成デッキへ少なくとも1種は混ざる."""
+    rng = random.Random(0)
+    color = next(
+        c
+        for c in meta.basic_energy_id
+        if any(
+            meta.energy_type.get(cid) == c
+            and meta.is_basic.get(cid)
+            and meta.card_type.get(cid) == CardType.POKEMON
+            and meta.has_ability.get(cid)
+            for cid in range(1, 1268)
+        )
+    )
+    d = structured_deck(deck, meta, rng, energy_type=color)
+    species = {
+        cid
+        for cid in d
+        if meta.card_type.get(cid) == CardType.POKEMON and meta.is_basic.get(cid)
+    }
+    assert any(meta.has_ability.get(cid) for cid in species)
+
+
 def test_mutate_keeps_legal(deck):
     """変異後も 60 枚で合法."""
     rng = random.Random(0)

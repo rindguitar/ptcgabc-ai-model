@@ -92,6 +92,10 @@ def structured_deck(
     本関数は「同色のたねアタッカー＋その色の基本エネ＋実績あるトレーナー群」という**回る別軸**を
     生成し、別アーキタイプの探索を実効化する。名称は扱わず energyType/最大ダメージ等の数値のみ使う。
 
+    威力は「効率（ダメージ/エネコスト）」で評価し、回しにくい大コスト技を過大評価しない。
+    さらに**特性持ちのたねポケモン**を候補に含める（特性＝デッキの核になりうるため。意味は読まず
+    有無のみ使い、価値は操縦・対戦結果側で判断させる）。
+
     Args:
         template: 構造の雛形にする合法デッキ（メタデッキ等）。トレーナー枠を流用する。
         energy_type: 差し替える色（None なら基本エネのある色からランダム）。
@@ -104,19 +108,27 @@ def structured_deck(
         energy_type = rng.choice(colors)
     energy_card = meta.basic_energy_id[energy_type]
 
-    # 色 T のたねアタッカー候補を最大ダメージ順に集め、上位 top_k からランダムに数種選ぶ
-    attackers = [
+    # 色 T のたねポケモン（攻撃役 or 特性持ち）を集める
+    mons = [
         cid
         for cid in pool
         if meta.card_type.get(cid) == CardType.POKEMON
         and meta.is_basic.get(cid)
         and meta.energy_type.get(cid) == energy_type
-        and meta.best_damage.get(cid, 0) > 0
+        and (meta.best_damage.get(cid, 0) > 0 or meta.has_ability.get(cid, False))
     ]
-    attackers.sort(key=lambda c: meta.best_damage.get(c, 0), reverse=True)
-    if not attackers:  # 候補ゼロの色（理論上ありえないが保険）はテンプレを返す
+    if not mons:  # 候補ゼロの色（理論上ありえないが保険）はテンプレを返す
         return list(template)
-    candidates = attackers[:top_k]
+    # 攻撃役は威力効率の高い順に top_k、特性持ちは別枠で数種を必ず混ぜる
+    attackers = sorted(
+        mons, key=lambda c: meta.best_efficiency.get(c, 0.0), reverse=True
+    )[:top_k]
+    ability_mons = sorted(
+        (c for c in mons if meta.has_ability.get(c, False)),
+        key=lambda c: meta.best_efficiency.get(c, 0.0),
+        reverse=True,
+    )[:3]
+    candidates = list(dict.fromkeys(attackers + ability_mons))  # 重複除去・順序保持
     rng.shuffle(candidates)
 
     # テンプレの枠を種別で数える
@@ -124,6 +136,9 @@ def structured_deck(
     new: list[int] = []
     # ポケモン枠: 選んだ種を 4枚制限内で循環配分（最低 1種は使う）
     species = candidates[: max(1, (n_poke + 3) // 4)] or candidates[:1]
+    # 特性持ちが候補にあるのに種に入らなければ 1種を必ず混ぜる（特性軸の探索を保証）
+    if ability_mons and not any(meta.has_ability.get(s) for s in species):
+        species[-1] = rng.choice(ability_mons)
     counts = dict.fromkeys(species, 0)
     for _ in range(n_poke):
         avail = [s for s in species if counts[s] < 4]
