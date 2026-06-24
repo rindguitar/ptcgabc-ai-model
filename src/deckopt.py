@@ -28,7 +28,7 @@ from deck import (
     save_deck,
     structured_deck,
 )
-from harness import evaluate_decks
+from harness import evaluate_decks, evaluate_decks_with_factory
 
 
 def fitness(
@@ -37,12 +37,25 @@ def fitness(
     agent: Agent,
     rng: random.Random,
     games_per_opp: int,
+    factory=None,
 ) -> dict:
-    """候補 deck の適応度。プール各デッキへの勝率と、その最小値/平均を返す."""
-    win_rates = [
-        evaluate_decks(deck, opp, agent, rng, games_per_opp)["win_rate_a"]
-        for opp in pool
-    ]
+    """候補 deck の適応度。プール各デッキへの勝率と、その最小値/平均を返す.
+
+    factory（my_deck, opp_deck -> Agent）を渡すと対戦ごとに操縦者を生成して評価する
+    （ISMCTS のようにデッキ依存の操縦者用）。未指定なら共通 agent で評価する。
+    """
+    if factory is not None:
+        win_rates = [
+            evaluate_decks_with_factory(deck, opp, factory, rng, games_per_opp)[
+                "win_rate_a"
+            ]
+            for opp in pool
+        ]
+    else:
+        win_rates = [
+            evaluate_decks(deck, opp, agent, rng, games_per_opp)["win_rate_a"]
+            for opp in pool
+        ]
     return {
         "min": min(win_rates),
         "mean": sum(win_rates) / len(win_rates),
@@ -101,6 +114,7 @@ def evolve(
     objective: str = "min",
     agent: Agent | None = None,
     ref_deck: list[int] | None = None,
+    eval_factory=None,
     verbose: bool = False,
 ) -> dict:
     """進化計算でプールへの最悪ケース（既定）勝率を最大化するデッキを探す.
@@ -137,7 +151,7 @@ def evolve(
     for gen in range(generations):
         scored = []
         for d in population:
-            f = fitness(d, pool, agent, rng, games_per_opp)
+            f = fitness(d, pool, agent, rng, games_per_opp, eval_factory)
             scored.append((f[objective], f, d))
         # 主目的（最悪ケース等）→ 同点は平均勝率で tie-break
         scored.sort(key=lambda x: (x[0], x[1]["mean"]), reverse=True)

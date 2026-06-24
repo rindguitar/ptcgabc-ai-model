@@ -23,7 +23,7 @@ from agents import Agent, make_heuristic_agent
 from cards import CardMeta, load_card_meta
 from deck import DECK_SIZE, is_legal, save_deck
 from deckopt import _load_pool, evolve
-from harness import evaluate_decks
+from harness import evaluate_decks, evaluate_decks_with_factory
 
 
 def deck_similarity(a: list[int], b: list[int]) -> float:
@@ -51,11 +51,22 @@ def worst_case(
     agent: Agent,
     rng: random.Random,
     games_per_opp: int,
+    factory=None,
 ) -> float:
-    """deck の pool への最悪ケース勝率（自分自身は除外）."""
+    """deck の pool への最悪ケース勝率（自分自身は除外）.
+
+    factory を渡すと対戦ごとに操縦者を生成して評価する（ISMCTS 等のデッキ依存操縦用）。
+    """
     opps = [p for p in pool if p != deck]
     if not opps:
         return 1.0
+    if factory is not None:
+        return min(
+            evaluate_decks_with_factory(deck, opp, factory, rng, games_per_opp)[
+                "win_rate_a"
+            ]
+            for opp in opps
+        )
     return min(
         evaluate_decks(deck, opp, agent, rng, games_per_opp)["win_rate_a"]
         for opp in opps
@@ -106,6 +117,7 @@ def run_league(
     resume: bool = False,
     incumbent: list[int] | None = None,
     reference_decks: list[list[int]] | None = None,
+    eval_factory=None,
 ) -> dict:
     """bounded double-oracle リーグを回し、最も頑健なチャンピオンデッキを返す.
 
@@ -161,6 +173,7 @@ def run_league(
             rng=rng,
             games_per_opp=games_per_opp,
             agent=agent,
+            eval_factory=eval_factory,
             **evolve_kwargs,
         )
         cand = res["deck"]
@@ -223,14 +236,19 @@ def run_league(
         raise ValueError(
             "最終選抜の候補がありません（iterations>=1 か incumbent を指定）"
         )
-    scored = [(worst_case(d, archive, agent, rng, eval_games), d) for d in candidates]
+    scored = [
+        (worst_case(d, archive, agent, rng, eval_games, eval_factory), d)
+        for d in candidates
+    ]
     scored.sort(key=lambda x: x[0], reverse=True)
     best_wc, best_deck = scored[0]
     retained = incumbent is not None and best_deck == list(incumbent)
     # 固定メタへの最悪ケース（実行間で比較できる安定指標）
     wc_vs_meta = None
     if reference_decks:
-        wc_vs_meta = worst_case(best_deck, reference_decks, agent, rng, eval_games)
+        wc_vs_meta = worst_case(
+            best_deck, reference_decks, agent, rng, eval_games, eval_factory
+        )
     return {
         "champion": best_deck,
         "champion_worstcase_vs_archive": best_wc,
@@ -273,6 +291,18 @@ def main() -> None:
         help="多様性注入の割合（0..1・別軸を探索）",
     )
     parser.add_argument("--seed", type=int, default=0, help="乱数シード")
+    parser.add_argument(
+        "--pilot",
+        choices=["heuristic", "ismcts"],
+        default="heuristic",
+        help="評価操縦。ismcts は特性/効果を扱えるが遅い（games/pop/gens は小さめ推奨）",
+    )
+    parser.add_argument(
+        "--time-budget",
+        type=float,
+        default=0.08,
+        help="ismcts 操縦の1手あたり秒（小さいほど速いが弱い）",
+    )
     parser.add_argument(
         "--plateau",
         type=int,
@@ -321,6 +351,22 @@ def main() -> None:
 
     rng = random.Random(args.seed)
     meta = load_card_meta()
+
+    # 評価操縦の factory。ismcts は対戦ごとに自分/相手デッキで determinize する操縦者を生成
+    # （特性・効果・トレーナーを扱える）。heuristic は共通 agent で評価（factory なし）。
+    eval_factory = None
+    if args.pilot == "ismcts":
+        from ismcts import make_ismcts_agent
+
+        def eval_factory(my_deck, opp_deck):  # noqa: E731
+            return make_ismcts_agent(
+                meta, my_deck, opp_deck, time_budget=args.time_budget
+            )
+
+        print(
+            f"評価操縦: ISMCTS（time_budget={args.time_budget}秒/手・heuristicより低速）"
+        )
+
     result = run_league(
         seeds,
         meta,
@@ -340,6 +386,7 @@ def main() -> None:
         resume=args.resume,
         incumbent=incumbent,
         reference_decks=reference_decks,
+        eval_factory=eval_factory,
     )
 
     status = (

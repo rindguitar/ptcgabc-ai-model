@@ -27,13 +27,18 @@ RUN     := $(COMPOSE) run --rm dev
         build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキリーグの既定パラメータ（make 変数で上書き可） --------------------
-# 例: make league LEAGUE_GAMES=32 LEAGUE_ITERS=16
+# 例: make league LEAGUE_GAMES=8 LEAGUE_ITERS=8
 # LEAGUE_ARGS は任意の追加フラグ（例: LEAGUE_ARGS=--resume）。
-LEAGUE_CAP     ?= 12
-LEAGUE_ITERS   ?= 12
-LEAGUE_GAMES   ?= 24
-LEAGUE_POP     ?= 16
-LEAGUE_GENS    ?= 8
+# 評価操縦は ISMCTS（特性/効果/トレーナーを扱える）。heuristic より桁違いに遅いので
+# games/pop/gens は小さめが既定。各反復でチェックポイント保存＝時間が来たら止めて resume 可。
+LEAGUE_PILOT      ?= ismcts
+LEAGUE_TIMEBUDGET ?= 0.05
+_PILOT_FLAGS       = --pilot $(LEAGUE_PILOT) --time-budget $(LEAGUE_TIMEBUDGET)
+LEAGUE_CAP     ?= 10
+LEAGUE_ITERS   ?= 6
+LEAGUE_GAMES   ?= 4
+LEAGUE_POP     ?= 6
+LEAGUE_GENS    ?= 3
 # 既定は実行ごとにランダム（素のコマンドを繰り返すと別探索→incumbent が最良を保持し世代更新）。
 # 再現したいときは make league LEAGUE_SEED=0 のように固定する。
 LEAGUE_SEED    ?= $(shell python3 -c 'import random;print(random.randrange(2**31))')
@@ -85,39 +90,40 @@ check: lint fmt-check test ## lint・fmt-check・test を順に実行
 
 # === デッキリーグ（bounded double-oracle） ================================
 # 出力: models/champion_deck.csv / チェックポイント: models/league/state.json（追跡外）
-league: ## リーグ実行（上書き可: make league LEAGUE_GAMES=32 / 探索: LEAGUE_EXPLORE=0.3 LEAGUE_MAXSWAPS=12）
+# 操縦は ISMCTS（既定）。time は目安・ゲーム長で変動。各反復で保存＝途中で止めて league-resume 可。
+league: ## ISMCTSリーグ実行（探索: LEAGUE_EXPLORE=0.3 LEAGUE_MAXSWAPS=12 / heuristicに戻す: LEAGUE_PILOT=heuristic）
 	$(PY) src/league.py --cap $(LEAGUE_CAP) --iters $(LEAGUE_ITERS) \
 		--games $(LEAGUE_GAMES) --pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) \
 		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) \
-		$(_EXPLORE_FLAGS) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
+		$(_PILOT_FLAGS) $(_EXPLORE_FLAGS) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
 league-resume: ## チェックポイントから続行（make league-resume LEAGUE_ITERS=4）
 	$(PY) src/league.py --cap $(LEAGUE_CAP) --iters $(LEAGUE_ITERS) \
 		--games $(LEAGUE_GAMES) --pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) \
 		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) --resume \
-		$(_EXPLORE_FLAGS) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
+		$(_PILOT_FLAGS) $(_EXPLORE_FLAGS) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
-league-overnight: ## 一晩用プリセット（約4.2h: games32/pop24/gens12/cap12/iters16・早期停止なし）
-	$(PY) src/league.py --cap 12 --iters 16 --games 32 --pop 24 --gens 12 \
-		--plateau 99 --seed $(LEAGUE_SEED) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
+league-overnight: ## ISMCTS一晩プリセット（約6h目安: cap12/iters10/games6/pop6/gens3・止めたら resume）
+	$(PY) src/league.py --cap 12 --iters 10 --games 6 --pop 6 --gens 3 \
+		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
-league-1h: ## 約1時間プリセット（games24/pop16/gens8/cap12/iters12）
-	$(PY) src/league.py --cap 12 --iters 12 --games 24 --pop 16 --gens 8 \
-		--plateau 99 --seed $(LEAGUE_SEED) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
+league-1h: ## ISMCTS約1時間プリセット（cap10/iters6/games4/pop6/gens3）
+	$(PY) src/league.py --cap 10 --iters 6 --games 4 --pop 6 --gens 3 \
+		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
-league-explore: ## 多軸探索リーグ（変数で iters/games 調整・大変異＋多様性注入・非弱化維持）
-	$(PY) src/league.py --cap 12 --iters $(LEAGUE_ITERS) --games $(LEAGUE_GAMES) \
+league-explore: ## ISMCTS多軸探索（変数で調整・大変異＋多様性注入・非弱化維持）
+	$(PY) src/league.py --cap $(LEAGUE_CAP) --iters $(LEAGUE_ITERS) --games $(LEAGUE_GAMES) \
 		--pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) --plateau 99 --seed $(LEAGUE_SEED) \
+		$(_PILOT_FLAGS) --max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
+
+league-explore-1h: ## ISMCTS約1時間の探索プリセット（別アーキタイプ/カードを広く探す）
+	$(PY) src/league.py --cap 10 --iters 6 --games 4 --pop 6 --gens 3 \
+		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) \
 		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
-league-explore-1h: ## 約1時間の探索プリセット（別アーキタイプ/カードを広く探す）
-	$(PY) src/league.py --cap 12 --iters 12 --games 24 --pop 16 --gens 8 \
-		--plateau 99 --seed $(LEAGUE_SEED) \
-		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-
-league-explore-overnight: ## 一晩の探索プリセット（約4h・別アーキタイプ/カードを広く探す）
-	$(PY) src/league.py --cap 12 --iters 16 --games 32 --pop 24 --gens 12 \
-		--plateau 99 --seed $(LEAGUE_SEED) \
+league-explore-overnight: ## ISMCTS一晩の探索プリセット（約6h目安・別アーキタイプを広く探す）
+	$(PY) src/league.py --cap 12 --iters 10 --games 6 --pop 6 --gens 3 \
+		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) \
 		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
 # === Phase 3 学習（Docker・torch/GPU） =====================================
