@@ -17,6 +17,7 @@ if not os.path.exists(DECK):
 
 from agents import make_heuristic_agent  # noqa: E402
 from cards import load_card_meta  # noqa: E402
+from cg.api import CardType  # noqa: E402
 from deck import (  # noqa: E402
     DECK_SIZE,
     composition,
@@ -24,6 +25,7 @@ from deck import (  # noqa: E402
     load_deck,
     mutate,
     random_legal_deck,
+    structured_deck,
 )
 from harness import evaluate_decks  # noqa: E402
 
@@ -55,6 +57,33 @@ def test_random_legal_deck(deck):
     d = random_legal_deck(deck, rng, swaps=15)
     assert len(d) == DECK_SIZE
     assert is_legal(d, deck)
+
+
+def test_structured_deck_is_coherent(deck, meta):
+    """構造化生成が 60枚・合法で、テンプレと別物の mono-type（単色集中）になる."""
+    rng = random.Random(0)
+    d = structured_deck(deck, meta, rng)
+    assert len(d) == DECK_SIZE
+    assert is_legal(d, deck)
+    # たねアタッカーの色がほぼ単色に集中している（寄せ集めでない＝『回る』別軸）
+    colors = [
+        meta.energy_type.get(c)
+        for c in d
+        if meta.card_type.get(c) == CardType.POKEMON and meta.is_basic.get(c)
+    ]
+    assert colors, "たねポケモンが存在する"
+    top = max(colors.count(x) for x in set(colors))
+    assert top / len(colors) >= 0.8  # 8割以上が同色
+    # ランダム合法デッキ（種類が多い寄せ集め）より種類数が絞られている
+    assert len(set(d)) < len(set(random_legal_deck(deck, rng, swaps=40)))
+
+
+def test_structured_deck_specified_color(deck, meta):
+    """色を指定すると、その色の基本エネが入る."""
+    rng = random.Random(0)
+    color = next(iter(meta.basic_energy_id))
+    d = structured_deck(deck, meta, rng, energy_type=color)
+    assert meta.basic_energy_id[color] in d
 
 
 def test_mutate_keeps_legal(deck):

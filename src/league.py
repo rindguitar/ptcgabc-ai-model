@@ -16,6 +16,7 @@ import glob
 import json
 import os
 import random
+import time
 from collections import Counter
 
 from agents import Agent, make_heuristic_agent
@@ -104,14 +105,20 @@ def run_league(
     checkpoint_path: str | None = None,
     resume: bool = False,
     incumbent: list[int] | None = None,
+    reference_decks: list[list[int]] | None = None,
 ) -> dict:
     """bounded double-oracle リーグを回し、最も頑健なチャンピオンデッキを返す.
 
     incumbent（前チャンピオン）を渡すと最終選抜の候補に含めるため、出力チャンピオンは
     前チャンピオン以上の評価が保証される（測定ノイズの範囲で**非弱化の世代更新**）。
 
+    reference_decks（固定のメタデッキ群）を渡すと、チャンピオンのそれへの最悪ケース勝率を
+    併せて返す。archive は探索で実行ごとに変動し比較不能なので、**実行間で比較できる固定基準**
+    として用いる。
+
     Returns:
-        dict: champion デッキ、全プール最悪ケース勝率、保管庫サイズ、履歴、retained。
+        dict: champion デッキ、全プール最悪ケース勝率、（任意で）固定メタ最悪ケース、
+        保管庫サイズ、履歴、retained。
     """
     rng = rng or random.Random(0)
     meta = meta or load_card_meta()
@@ -220,9 +227,14 @@ def run_league(
     scored.sort(key=lambda x: x[0], reverse=True)
     best_wc, best_deck = scored[0]
     retained = incumbent is not None and best_deck == list(incumbent)
+    # 固定メタへの最悪ケース（実行間で比較できる安定指標）
+    wc_vs_meta = None
+    if reference_decks:
+        wc_vs_meta = worst_case(best_deck, reference_decks, agent, rng, eval_games)
     return {
         "champion": best_deck,
         "champion_worstcase_vs_archive": best_wc,
+        "champion_worstcase_vs_meta": wc_vs_meta,
         "archive_size": len(archive),
         "history": history,
         "retained": retained,
@@ -284,6 +296,8 @@ def main() -> None:
 
     seed_paths = args.seeds or sorted(glob.glob("data/*.csv"))
     seeds = _load_pool(seed_paths)
+    # extra-seeds 追加前の実メタを固定基準として保持（実行間で比較できる最悪ケース用）
+    reference_decks = [list(d) for d in seeds]
     if args.extra_seeds:
         # 既存チャンピオン等を固定の試験官として追加（重複は除外）
         for extra in _load_pool(args.extra_seeds):
@@ -325,6 +339,7 @@ def main() -> None:
         checkpoint_path=args.checkpoint,
         resume=args.resume,
         incumbent=incumbent,
+        reference_decks=reference_decks,
     )
 
     status = (
@@ -336,9 +351,23 @@ def main() -> None:
         f"\nチャンピオン[{status}]: 全プール最悪ケース勝率="
         f"{result['champion_worstcase_vs_archive']:.3f} (archive {result['archive_size']} デッキ)"
     )
+    # 固定メタへの最悪ケースは archive と違い実行間で比較可能（探索の真の進捗指標）
+    if result.get("champion_worstcase_vs_meta") is not None:
+        print(
+            f"固定メタ{len(reference_decks)}デッキへの最悪ケース勝率="
+            f"{result['champion_worstcase_vs_meta']:.3f}（実行間で比較できる基準）"
+        )
     if not is_legal(result["champion"], seeds[0]):
         print("警告: チャンピオンが非合法（保存しません）")
         return
+    # 既存チャンピオンを版管理バックアップしてから上書き（良い軸を失わない）
+    if os.path.exists(args.out):
+        backup_dir = os.path.join(os.path.dirname(args.out) or ".", "champions")
+        os.makedirs(backup_dir, exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        backup = os.path.join(backup_dir, f"champ_{stamp}.csv")
+        save_deck(_load_pool([args.out])[0], backup)
+        print(f"前チャンピオンを {backup} にバックアップ")
     save_deck(result["champion"], args.out)
     print(f"チャンピオンを {args.out} に保存（追跡外）")
 

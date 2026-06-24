@@ -77,6 +77,80 @@ def random_legal_deck(
     return deck
 
 
+def structured_deck(
+    template: list[int],
+    meta: CardMeta,
+    rng: random.Random,
+    energy_type: int | None = None,
+    pool: list[int] = CARD_POOL,
+    top_k: int = 8,
+) -> list[int]:
+    """テンプレデッキの構造（トレーナー枠）を保ち、ポケモンと基本エネを単一の色 T に
+    差し替えた**コヒーレントな mono-type デッキ**を作る.
+
+    ランダムな寄せ集め（random_legal_deck）は「まとまりが無く」ほぼ全敗するため探索で淘汰される。
+    本関数は「同色のたねアタッカー＋その色の基本エネ＋実績あるトレーナー群」という**回る別軸**を
+    生成し、別アーキタイプの探索を実効化する。名称は扱わず energyType/最大ダメージ等の数値のみ使う。
+
+    Args:
+        template: 構造の雛形にする合法デッキ（メタデッキ等）。トレーナー枠を流用する。
+        energy_type: 差し替える色（None なら基本エネのある色からランダム）。
+        top_k: アタッカー候補の上位種数（この中から複数種を選び 4枚制限内で配分）。
+    """
+    BASIC_ENERGY = CardType.BASIC_ENERGY
+    # 差し替える色 T を決める（基本エネが存在する色のみ）
+    colors = sorted(meta.basic_energy_id)
+    if energy_type is None or energy_type not in meta.basic_energy_id:
+        energy_type = rng.choice(colors)
+    energy_card = meta.basic_energy_id[energy_type]
+
+    # 色 T のたねアタッカー候補を最大ダメージ順に集め、上位 top_k からランダムに数種選ぶ
+    attackers = [
+        cid
+        for cid in pool
+        if meta.card_type.get(cid) == CardType.POKEMON
+        and meta.is_basic.get(cid)
+        and meta.energy_type.get(cid) == energy_type
+        and meta.best_damage.get(cid, 0) > 0
+    ]
+    attackers.sort(key=lambda c: meta.best_damage.get(c, 0), reverse=True)
+    if not attackers:  # 候補ゼロの色（理論上ありえないが保険）はテンプレを返す
+        return list(template)
+    candidates = attackers[:top_k]
+    rng.shuffle(candidates)
+
+    # テンプレの枠を種別で数える
+    n_poke = sum(1 for c in template if meta.card_type.get(c) == CardType.POKEMON)
+    new: list[int] = []
+    # ポケモン枠: 選んだ種を 4枚制限内で循環配分（最低 1種は使う）
+    species = candidates[: max(1, (n_poke + 3) // 4)] or candidates[:1]
+    counts = dict.fromkeys(species, 0)
+    for _ in range(n_poke):
+        avail = [s for s in species if counts[s] < 4]
+        if not avail:  # 種が尽きたら候補から補充
+            extra = next((c for c in candidates if c not in counts), None)
+            if extra is None:
+                break
+            species.append(extra)
+            counts[extra] = 0
+            avail = [extra]
+        pick = rng.choice(avail)
+        counts[pick] += 1
+        new.append(pick)
+    # 残り（トレーナー/道具/特殊エネ）と 基本エネ枠 を流用・差し替え
+    for c in template:
+        ct = meta.card_type.get(c)
+        if ct == CardType.POKEMON:
+            continue  # 上で再構築済み
+        new.append(energy_card if ct == BASIC_ENERGY else c)
+
+    # 60枚に整える（端数は基本エネで調整）。合法でなければテンプレにフォールバック
+    new = new[:DECK_SIZE]
+    while len(new) < DECK_SIZE:
+        new.append(energy_card)
+    return new if is_legal(new, template) else list(template)
+
+
 def composition(deck: list[int], meta: CardMeta) -> dict[str, int]:
     """デッキの種別構成（ポケモン/グッズ/道具/サポート/スタジアム/エネ）を数える."""
     counts = Counter(meta.card_type.get(cid) for cid in deck)

@@ -19,7 +19,15 @@ import sys
 
 from agents import Agent, make_heuristic_agent
 from cards import CardMeta, load_card_meta
-from deck import DECK_SIZE, is_legal, load_deck, mutate, random_legal_deck, save_deck
+from deck import (
+    DECK_SIZE,
+    is_legal,
+    load_deck,
+    mutate,
+    random_legal_deck,
+    save_deck,
+    structured_deck,
+)
 from harness import evaluate_decks
 
 
@@ -60,13 +68,18 @@ def _make_child(
     mutations_per_child: int,
     max_swaps: int,
     explore_frac: float,
+    meta: CardMeta | None = None,
 ) -> list[int]:
     """子デッキを生成する.
 
-    確率 explore_frac で**多様性注入**（多数変異で別アーキタイプ寄りの合法デッキ＝局所最適を脱出）。
-    それ以外は親を変異。max_swaps>1 のとき変異枚数を 1..max_swaps で可変にし、近所も遠方も探る。
+    確率 explore_frac で**多様性注入**で局所最適を脱出する。meta があれば構造化生成
+    （同色たねアタッカー＋基本エネ＋実績トレーナーの『回る別軸』）を使い、無ければ
+    多数変異のランダム合法デッキにフォールバックする。それ以外は親を変異。
+    max_swaps>1 のとき変異枚数を 1..max_swaps で可変にし、近所も遠方も探る。
     """
     if explore_frac > 0 and rng.random() < explore_frac:
+        if meta is not None:
+            return structured_deck(rng.choice(base), meta, rng)
         return random_legal_deck(rng.choice(base), rng, swaps=max(20, max_swaps * 5))
     n = rng.randint(1, max_swaps) if max_swaps > 1 else mutations_per_child
     return _mutate_n(rng.choice(parents), ref_deck, rng, n)
@@ -107,7 +120,14 @@ def evolve(
     # 初期集団: シードから変異＋多様性注入で散らす
     population = [
         _make_child(
-            base, base, ref_deck, rng, mutations_per_child, max_swaps, explore_frac
+            base,
+            base,
+            ref_deck,
+            rng,
+            mutations_per_child,
+            max_swaps,
+            explore_frac,
+            meta,
         )
         for _ in range(pop_size)
     ]
@@ -148,6 +168,7 @@ def evolve(
                     mutations_per_child,
                     max_swaps,
                     explore_frac,
+                    meta,
                 )
             )
 
