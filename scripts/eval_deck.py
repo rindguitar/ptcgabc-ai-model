@@ -28,6 +28,33 @@ from harness import evaluate_decks, evaluate_decks_with_factory  # noqa: E402
 from ismcts import make_ismcts_agent  # noqa: E402
 
 
+def eval_deck_vs_meta(
+    deck, meta, opps, rng, games, pilot="ismcts", time_budget=0.1
+) -> dict:
+    """deck を opps（メタ群）に対し評価し per_opp/最悪/平均を返す（gate からも使う）."""
+    if pilot == "ismcts":
+
+        def factory(my_deck, opp_deck):
+            return make_ismcts_agent(meta, my_deck, opp_deck, time_budget=time_budget)
+
+        rates = [
+            evaluate_decks_with_factory(deck, opp, factory, rng, games)["win_rate_a"]
+            for opp in opps
+        ]
+    else:
+        from agents import make_heuristic_agent
+
+        agent = make_heuristic_agent(meta)
+        rates = [
+            evaluate_decks(deck, opp, agent, rng, games)["win_rate_a"] for opp in opps
+        ]
+    return {
+        "per_opp": rates,
+        "worst": min(rates),
+        "mean": statistics.mean(rates),
+    }
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
         description="デッキ強さの確定評価（vs メタ・ISMCTS操縦）"
@@ -58,34 +85,14 @@ def main() -> None:
         print("評価相手（メタ）が見つかりません")
         return
     rng = random.Random(args.seed)
-
-    if args.pilot == "ismcts":
-
-        def factory(my_deck, opp_deck):
-            return make_ismcts_agent(
-                meta, my_deck, opp_deck, time_budget=args.time_budget
-            )
-
-        rates = [
-            evaluate_decks_with_factory(deck, opp, factory, rng, args.games)[
-                "win_rate_a"
-            ]
-            for opp in opps
-        ]
-    else:
-        from agents import make_heuristic_agent
-
-        agent = make_heuristic_agent(meta)
-        rates = [
-            evaluate_decks(deck, opp, agent, rng, args.games)["win_rate_a"]
-            for opp in opps
-        ]
-
+    res = eval_deck_vs_meta(
+        deck, meta, opps, rng, args.games, args.pilot, args.time_budget
+    )
     print(
         f"{args.deck} vs メタ{len(opps)}デッキ（{args.pilot}操縦・各{args.games}試合・席入替）:"
     )
-    print(f"  per_opp = {[round(r, 3) for r in rates]}")
-    print(f"  最悪 = {min(rates):.3f}  平均 = {statistics.mean(rates):.3f}")
+    print(f"  per_opp = {[round(r, 3) for r in res['per_opp']]}")
+    print(f"  最悪 = {res['worst']:.3f}  平均 = {res['mean']:.3f}")
 
 
 if __name__ == "__main__":

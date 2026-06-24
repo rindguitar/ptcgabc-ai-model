@@ -23,7 +23,7 @@ RUN     := $(COMPOSE) run --rm dev
 .PHONY: help deps lint format fmt-check test smoke bench check \
         league league-resume league-overnight league-1h \
         league-explore league-explore-1h league-explore-overnight submission \
-        train train-1h train-overnight distill eval-net eval-deck \
+        train train-1h train-overnight distill eval-net eval-deck champion-gate \
         build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキリーグの既定パラメータ（make 変数で上書き可） --------------------
@@ -170,6 +170,13 @@ EVAL_DECK_GAMES ?= 20
 EVAL_DECK_ARGS  ?=
 eval-deck: ## デッキ強さの確定評価（vs メタ・ISMCTS・既定 champion 20試合・ホスト）
 	$(PY) scripts/eval_deck.py --deck $(EVAL_DECK) --games $(EVAL_DECK_GAMES) $(EVAL_DECK_ARGS)
+
+# 信頼ラチェット: league 後に挟むと、新チャンピオンが best を信頼試合数で上回った時だけ昇格。
+# ノイズドリフトを止め、回し続けるほど models/champion_best.csv が単調に良くなる。提出は best を使う。
+GATE_GAMES ?= 20
+GATE_ARGS  ?=
+champion-gate: ## league 後の keep-best 判定（新が best を上回った時だけ昇格・ホスト）
+	$(PY) scripts/champion_gate.py --games $(GATE_GAMES) $(GATE_ARGS)
 
 # === 提出 ==================================================================
 submission: ## 提出パッケージ models/submission.tar.gz を作成（champion＋ISMCTS＋cg＋deck）
