@@ -166,14 +166,16 @@ eval-net: ## 訓練済みNNの確定判断用 評価（既定: vs heuristic 40�
 # デッキ強さの確定評価（vs メタ・ISMCTS操縦・多めの試合）。league内部の小サンプル(6試合)では
 # 判定できない「本当にデッキが強くなったか」を測る。ホスト(CPU)。champions/ のバックアップと比較可。
 EVAL_DECK       ?= models/champion_deck.csv
-EVAL_DECK_GAMES ?= 20
+# 既定40試合: 20では運の振れで誤判断する（実測 worst 0.35→0.625 と激変）ため確定判断は40+。
+EVAL_DECK_GAMES ?= 40
 EVAL_DECK_ARGS  ?=
 eval-deck: ## デッキ強さの確定評価（vs メタ・ISMCTS・既定 champion 20試合・ホスト）
 	$(PY) scripts/eval_deck.py --deck $(EVAL_DECK) --games $(EVAL_DECK_GAMES) $(EVAL_DECK_ARGS)
 
 # 信頼ラチェット: league 後に挟むと、新チャンピオンが best を信頼試合数で上回った時だけ昇格。
 # ノイズドリフトを止め、回し続けるほど models/champion_best.csv が単調に良くなる。提出は best を使う。
-GATE_GAMES ?= 20
+# 既定40試合: 20では判断がノイズに飲まれる（worst が ±0.2 振れる）ため keep-best は40+で判定。
+GATE_GAMES ?= 40
 GATE_ARGS  ?=
 champion-gate: ## league 後の keep-best 判定（新が best を上回った時だけ昇格・ホスト）
 	$(PY) scripts/champion_gate.py --games $(GATE_GAMES) $(GATE_ARGS)
