@@ -23,7 +23,7 @@ RUN     := $(COMPOSE) run --rm dev
 .PHONY: help deps lint format fmt-check test smoke bench check \
         league league-resume league-overnight league-1h \
         league-explore league-explore-1h league-explore-overnight submission \
-        train train-1h train-overnight distill eval-net \
+        train train-1h train-overnight distill eval-net eval-deck \
         build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキリーグの既定パラメータ（make 変数で上書き可） --------------------
@@ -162,6 +162,14 @@ EVAL_VS    ?= heuristic
 EVAL_ARGS  ?=
 eval-net: ## 訓練済みNNの確定判断用 評価（既定: vs heuristic 40試合・Docker）
 	$(RUN) python scripts/eval_net.py --vs $(EVAL_VS) --games $(EVAL_GAMES) $(EVAL_ARGS)
+
+# デッキ強さの確定評価（vs メタ・ISMCTS操縦・多めの試合）。league内部の小サンプル(6試合)では
+# 判定できない「本当にデッキが強くなったか」を測る。ホスト(CPU)。champions/ のバックアップと比較可。
+EVAL_DECK       ?= models/champion_deck.csv
+EVAL_DECK_GAMES ?= 20
+EVAL_DECK_ARGS  ?=
+eval-deck: ## デッキ強さの確定評価（vs メタ・ISMCTS・既定 champion 20試合・ホスト）
+	$(PY) scripts/eval_deck.py --deck $(EVAL_DECK) --games $(EVAL_DECK_GAMES) $(EVAL_DECK_ARGS)
 
 # === 提出 ==================================================================
 submission: ## 提出パッケージ models/submission.tar.gz を作成（champion＋ISMCTS＋cg＋deck）
