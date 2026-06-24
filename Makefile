@@ -23,7 +23,7 @@ RUN     := $(COMPOSE) run --rm dev
 .PHONY: help deps lint format fmt-check test smoke bench check \
         league league-resume league-overnight league-1h \
         league-explore league-explore-1h league-explore-overnight submission \
-        train train-1h train-overnight eval-net \
+        train train-1h train-overnight distill eval-net \
         build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキリーグの既定パラメータ（make 変数で上書き可） --------------------
@@ -141,6 +141,14 @@ train-1h: ## 約1時間の継続学習（resume＝iter300等から続行・vs he
 train-overnight: ## 一晩の継続学習（約7h・resume で続行・評価付き）
 	$(RUN) python scripts/train_alphazero.py --resume --iterations $(TRAIN_ITERS_NIGHT) \
 		--eval-every 100 --eval-games 24 $(TRAIN_ARGS)
+
+# 蒸留: ISMCTS 教師を真似て安定した強い土台を作る（自己対戦の崩壊を回避）。ISMCTS収集は遅い。
+# 既存 pvnet.pt から続けたくない場合は DISTILL_ARGS に出力先を指定。例: DISTILL_ARGS="--out models/pvnet_distill.pt"
+DISTILL_ITERS ?= 60
+DISTILL_ARGS  ?=
+distill: ## ISMCTS蒸留学習（Docker）。崩壊回避の強い土台作り。best も自動保存
+	$(RUN) python scripts/train_alphazero.py --teacher ismcts \
+		--iterations $(DISTILL_ITERS) --eval-every 20 --eval-games 24 $(DISTILL_ARGS)
 
 # 確定判断用の offline 評価（試合数を増やして運の振れを抑える）。学習中の24は傾向把握用、
 # こちらは 40+ で「NN は heuristic/ISMCTS を超えたか」を判断する。例: make eval-net EVAL_GAMES=100

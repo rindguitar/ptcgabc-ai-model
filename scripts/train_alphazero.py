@@ -31,6 +31,7 @@ from harness import evaluate  # noqa: E402
 from net import PVNet  # noqa: E402
 from nn_eval import make_net_evaluator  # noqa: E402
 from nn_mcts import make_nn_mcts_agent  # noqa: E402
+from distill import generate_ismcts_samples  # noqa: E402
 from selfplay import generate_samples  # noqa: E402
 from train import load_net, load_net_warmstart, save_net, train  # noqa: E402
 
@@ -72,6 +73,18 @@ def main() -> None:
     )
     p.add_argument("--seed", type=int, default=0, help="乱数シード")
     p.add_argument("--resume", action="store_true", help="既存ネットから続行")
+    p.add_argument(
+        "--teacher",
+        choices=["selfplay", "ismcts"],
+        default="selfplay",
+        help="データ収集元。ismcts は ISMCTS 教師を真似る蒸留（崩壊回避・強い土台）",
+    )
+    p.add_argument(
+        "--teacher-time-budget",
+        type=float,
+        default=0.1,
+        help="ismcts 教師の1手あたり秒（蒸留時のみ・大きいほど強い教師だが遅い）",
+    )
     p.add_argument(
         "--buffer", type=int, default=20, help="リプレイバッファに保持する直近反復数"
     )
@@ -131,16 +144,22 @@ def main() -> None:
     buffer: deque[list] = deque(maxlen=args.buffer)
     best_wr = -1.0  # eval 最良勝率。学習が不安定でも最良モデルを別ファイルに残す
     for it in range(args.iterations):
-        evaluator = make_net_evaluator(net, meta, device)
-        new_samples = generate_samples(
-            meta,
-            deck,
-            evaluator,
-            args.games,
-            rng,
-            n_simulations=args.sims,
-            n_determinizations=args.dets,
-        )
+        if args.teacher == "ismcts":
+            # 蒸留: ISMCTS 教師の選択を真似る（弱い net からの自己対戦崩壊を回避し強い土台を作る）
+            new_samples = generate_ismcts_samples(
+                meta, deck, args.games, rng, time_budget=args.teacher_time_budget
+            )
+        else:
+            evaluator = make_net_evaluator(net, meta, device)
+            new_samples = generate_samples(
+                meta,
+                deck,
+                evaluator,
+                args.games,
+                rng,
+                n_simulations=args.sims,
+                n_determinizations=args.dets,
+            )
         buffer.append(new_samples)
         train_data = [s for lst in buffer for s in lst]  # バッファ全体で学習
         history = train(
