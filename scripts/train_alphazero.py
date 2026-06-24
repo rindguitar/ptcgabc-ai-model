@@ -62,7 +62,14 @@ def main() -> None:
     p.add_argument("--dets", type=int, default=2, help="determinization 数")
     p.add_argument("--epochs", type=int, default=2, help="反復ごとの学習 epoch")
     p.add_argument("--batch", type=int, default=32, help="バッチサイズ（勾配累積）")
-    p.add_argument("--lr", type=float, default=1e-3, help="学習率")
+    p.add_argument(
+        "--lr", type=float, default=5e-4, help="学習率（継続学習の安定重視でやや低め）"
+    )
+    p.add_argument(
+        "--best-out",
+        default="models/pvnet_best.pt",
+        help="eval 最良時のネット保存先（学習が不安定でも最良を失わない・追跡外）",
+    )
     p.add_argument("--seed", type=int, default=0, help="乱数シード")
     p.add_argument("--resume", action="store_true", help="既存ネットから続行")
     p.add_argument(
@@ -122,6 +129,7 @@ def main() -> None:
 
     # リプレイバッファ: 直近 args.buffer 反復分の自己対戦サンプルを保持し、まとめて学習する
     buffer: deque[list] = deque(maxlen=args.buffer)
+    best_wr = -1.0  # eval 最良勝率。学習が不安定でも最良モデルを別ファイルに残す
     for it in range(args.iterations):
         evaluator = make_net_evaluator(net, meta, device)
         new_samples = generate_samples(
@@ -161,6 +169,12 @@ def main() -> None:
             )
             eval_wr = f"{wr:.3f}"
             print(f"  [eval] iter {it}: NN-MCTS vs heuristic 勝率 = {wr:.3f}")
+            # 最良を別ファイルに退避（崩壊しても最良を失わない）。eval はノイズありなので
+            # 確定判断は別途 make eval-net（40+試合）で行う前提。
+            if wr > best_wr:
+                best_wr = wr
+                save_net(net, args.best_out)
+                print(f"    -> best 更新（{wr:.3f}）→ {args.best_out} に保存")
         # 進捗を CSV に追記（各反復ごとに flush＝途中で落ちても残る）
         log_writer.writerow(
             [
