@@ -23,7 +23,7 @@ RUN     := $(COMPOSE) run --rm dev
 .PHONY: help deps lint format fmt-check test smoke bench check \
         league league-resume league-overnight league-1h \
         league-explore league-explore-1h league-explore-overnight submission \
-        train train-1h train-overnight \
+        train train-1h train-overnight eval-net \
         build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキリーグの既定パラメータ（make 変数で上書き可） --------------------
@@ -130,11 +130,19 @@ train: ## AlphaZero 反復学習（Docker）。例: make train TRAIN_ARGS="--ite
 
 train-1h: ## 約1時間の継続学習（resume＝iter300等から続行・vs heuristic評価付き）
 	$(RUN) python scripts/train_alphazero.py --resume --iterations $(TRAIN_ITERS_1H) \
-		--eval-every 50 --eval-games 12 $(TRAIN_ARGS)
+		--eval-every 50 --eval-games 24 $(TRAIN_ARGS)
 
 train-overnight: ## 一晩の継続学習（約7h・resume で続行・評価付き）
 	$(RUN) python scripts/train_alphazero.py --resume --iterations $(TRAIN_ITERS_NIGHT) \
-		--eval-every 100 --eval-games 12 $(TRAIN_ARGS)
+		--eval-every 100 --eval-games 24 $(TRAIN_ARGS)
+
+# 確定判断用の offline 評価（試合数を増やして運の振れを抑える）。学習中の24は傾向把握用、
+# こちらは 40+ で「NN は heuristic/ISMCTS を超えたか」を判断する。例: make eval-net EVAL_GAMES=100
+EVAL_GAMES ?= 40
+EVAL_VS    ?= heuristic
+EVAL_ARGS  ?=
+eval-net: ## 訓練済みNNの確定判断用 評価（既定: vs heuristic 40試合・Docker）
+	$(RUN) python scripts/eval_net.py --vs $(EVAL_VS) --games $(EVAL_GAMES) $(EVAL_ARGS)
 
 # === 提出 ==================================================================
 submission: ## 提出パッケージ models/submission.tar.gz を作成（champion＋ISMCTS＋cg＋deck）
