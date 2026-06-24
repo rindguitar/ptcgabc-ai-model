@@ -131,24 +131,29 @@ league-explore-overnight: ## ISMCTS一晩の探索プリセット（約6h目安�
 TRAIN_ARGS       ?=
 TRAIN_ITERS_1H   ?= 100
 TRAIN_ITERS_NIGHT ?= 800
+# 学習デッキ群: 先頭=評価用に固定(data/deck.csv で実行間比較可)、以降にチャンピオン＋メタを足して
+# 多様化（1デッキ過学習を避け、league で色々なデッキを回せる汎用 pilot に近づける）。
+TRAIN_DECKS ?= data/deck.csv $(wildcard models/champion_deck.csv) $(wildcard data/*_Deck.csv)
+_DECKS_FLAG  = --deck $(TRAIN_DECKS)
 train: ## AlphaZero 反復学習（Docker）。例: make train TRAIN_ARGS="--iterations 20 --games 16"
 	$(RUN) python scripts/train_alphazero.py $(TRAIN_ARGS)
 
-train-1h: ## 約1時間の継続学習（resume＝iter300等から続行・vs heuristic評価付き）
+train-1h: ## 約1時間の継続学習（resume・複数デッキ・vs heuristic評価付き）
 	$(RUN) python scripts/train_alphazero.py --resume --iterations $(TRAIN_ITERS_1H) \
-		--eval-every 50 --eval-games 24 $(TRAIN_ARGS)
+		--eval-every 50 --eval-games 24 $(_DECKS_FLAG) $(TRAIN_ARGS)
 
-train-overnight: ## 一晩の継続学習（約7h・resume で続行・評価付き）
+train-overnight: ## 一晩の継続学習（約7h・resume・複数デッキ・評価付き）
 	$(RUN) python scripts/train_alphazero.py --resume --iterations $(TRAIN_ITERS_NIGHT) \
-		--eval-every 100 --eval-games 24 $(TRAIN_ARGS)
+		--eval-every 100 --eval-games 24 $(_DECKS_FLAG) $(TRAIN_ARGS)
 
 # 蒸留: ISMCTS 教師を真似て安定した強い土台を作る（自己対戦の崩壊を回避）。ISMCTS収集は遅い。
-# 既存 pvnet.pt から続けたくない場合は DISTILL_ARGS に出力先を指定。例: DISTILL_ARGS="--out models/pvnet_distill.pt"
+# 既定で複数デッキ（チャンピオン＋メタ）を巡回＝汎用 pilot 化。出力先変更は DISTILL_ARGS="--out ..."。
 DISTILL_ITERS ?= 60
 DISTILL_ARGS  ?=
-distill: ## ISMCTS蒸留学習（Docker）。崩壊回避の強い土台作り。best も自動保存
+distill: ## ISMCTS蒸留学習（Docker）。複数デッキで汎用土台＋best自動保存
 	$(RUN) python scripts/train_alphazero.py --teacher ismcts \
-		--iterations $(DISTILL_ITERS) --eval-every 20 --eval-games 24 $(DISTILL_ARGS)
+		--iterations $(DISTILL_ITERS) --eval-every 20 --eval-games 24 \
+		$(_DECKS_FLAG) $(DISTILL_ARGS)
 
 # 確定判断用の offline 評価（試合数を増やして運の振れを抑える）。学習中の24は傾向把握用、
 # こちらは 40+ で「NN は heuristic/ISMCTS を超えたか」を判断する。例: make eval-net EVAL_GAMES=100

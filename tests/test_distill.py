@@ -37,3 +37,15 @@ def test_ismcts_distill_samples_format():
         assert float(s.pi.max()) == pytest.approx(1.0)
         assert np.count_nonzero(s.pi) == 1
         assert s.z in (0.0, 0.5, 1.0)
+
+
+def test_ismcts_distill_accepts_multiple_decks():
+    """複数デッキ（list[list[int]]）でも単一デッキでも収集できる（汎用 pilot 化）."""
+    meta = load_card_meta()
+    deck = load_deck(DECK)
+    rng = random.Random(0)
+    # 単一デッキ（後方互換）と複数デッキの両方が Sample を返す
+    one = generate_ismcts_samples(meta, deck, 1, rng, time_budget=0.02)
+    multi = generate_ismcts_samples(meta, [deck, deck], 2, rng, time_budget=0.02)
+    assert one and multi
+    assert all(s.state.shape == (OBS_FEAT_LEN,) for s in multi)

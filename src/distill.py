@@ -21,7 +21,7 @@ from cg.game import battle_finish, battle_select, battle_start
 from features import encode_actions, encode_observation
 from ismcts import make_ismcts_agent
 from nn_mcts import _MCTS_SELECT_TYPES
-from selfplay import Sample
+from selfplay import Sample, as_deck_list
 
 
 def play_ismcts_distill_game(
@@ -83,14 +83,20 @@ def play_ismcts_distill_game(
 
 def generate_ismcts_samples(
     meta: CardMeta,
-    deck: list[int],
+    decks,
     n_games: int,
     rng: random.Random,
     time_budget: float = 0.1,
 ) -> list[Sample]:
-    """n_games 回 ISMCTS 対戦し、蒸留サンプルをまとめて収集する."""
+    """n_games 回 ISMCTS 対戦し、蒸留サンプルをまとめて収集する.
+
+    decks は単一デッキ(list[int])でも複数デッキ(list[list[int]])でも可。複数なら毎試合
+    ランダムに1つ選ぶ（多様なデッキを操縦できる汎用 pilot に近づける）。
+    """
+    pool = as_deck_list(decks)
     samples: list[Sample] = []
     for _ in range(n_games):
+        deck = rng.choice(pool)
         samples.extend(
             play_ismcts_distill_game(meta, deck, rng, time_budget=time_budget)
         )

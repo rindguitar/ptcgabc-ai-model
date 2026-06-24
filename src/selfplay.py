@@ -38,6 +38,17 @@ class Sample:
     z: float  # 価値ターゲット（手番視点の勝敗）
 
 
+def as_deck_list(decks) -> list[list[int]]:
+    """単一デッキ(list[int]) / 複数デッキ(list[list[int]]) のどちらでも受けてデッキ列にする.
+
+    複数デッキで学習すると、1デッキへの過学習を避けて多様なデッキを回せる汎用 pilot に近づく
+    （NN は league で色々なデッキを操縦するため）。
+    """
+    if decks and isinstance(decks[0], int):
+        return [list(decks)]
+    return [list(d) for d in decks]
+
+
 def _sample_index(pi: list[float], rng: random.Random) -> int:
     """訪問分布 π から行動 index を1つサンプリング（探索のため）."""
     return rng.choices(range(len(pi)), weights=pi, k=1)[0]
@@ -126,15 +137,21 @@ def play_selfplay_game(
 
 def generate_samples(
     meta: CardMeta,
-    deck: list[int],
+    decks,
     evaluator: Evaluator | None,
     n_games: int,
     rng: random.Random,
     **game_kwargs,
 ) -> list[Sample]:
-    """n_games 回の自己対戦でサンプルをまとめて収集する."""
+    """n_games 回の自己対戦でサンプルをまとめて収集する.
+
+    decks は単一デッキ(list[int])でも複数デッキ(list[list[int]])でも可。複数なら毎試合
+    ランダムに1つ選ぶ（多様なデッキで汎用 pilot を育てる）。
+    """
     evaluator = evaluator or make_prize_evaluator(meta)
+    pool = as_deck_list(decks)
     samples: list[Sample] = []
     for _ in range(n_games):
+        deck = rng.choice(pool)
         samples.extend(play_selfplay_game(meta, deck, evaluator, rng, **game_kwargs))
     return samples

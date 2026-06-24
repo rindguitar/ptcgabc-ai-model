@@ -53,7 +53,13 @@ def _eval_vs_heuristic(net, meta, deck, device, games, sims, dets, rng) -> float
 
 def main() -> None:
     p = argparse.ArgumentParser(description="AlphaZero 反復学習")
-    p.add_argument("--deck", default="data/deck.csv", help="self-play に使うデッキ")
+    p.add_argument(
+        "--deck",
+        nargs="+",
+        default=["data/deck.csv"],
+        help="学習に使うデッキ（複数可。毎試合ランダム選択＝汎用 pilot 化）。"
+        "例: --deck models/champion_deck.csv data/sample_deck.csv",
+    )
     p.add_argument(
         "--out", default="models/pvnet.pt", help="学習ネットの保存先（追跡外）"
     )
@@ -102,8 +108,15 @@ def main() -> None:
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     meta = load_card_meta()
-    deck = load_deck(args.deck)
+    decks = [
+        load_deck(p) for p in args.deck
+    ]  # 学習用デッキ群（複数なら毎試合ランダム選択）
+    eval_deck = decks[0]  # 評価は先頭デッキに固定（実行間で比較可能に）
     rng = random.Random(args.seed)
+    if len(decks) > 1:
+        print(
+            f"学習デッキ {len(decks)} 種（多様化で汎用 pilot 化）。評価は先頭デッキ固定"
+        )
 
     if args.resume and os.path.exists(args.out):
         try:
@@ -147,13 +160,13 @@ def main() -> None:
         if args.teacher == "ismcts":
             # 蒸留: ISMCTS 教師の選択を真似る（弱い net からの自己対戦崩壊を回避し強い土台を作る）
             new_samples = generate_ismcts_samples(
-                meta, deck, args.games, rng, time_budget=args.teacher_time_budget
+                meta, decks, args.games, rng, time_budget=args.teacher_time_budget
             )
         else:
             evaluator = make_net_evaluator(net, meta, device)
             new_samples = generate_samples(
                 meta,
-                deck,
+                decks,
                 evaluator,
                 args.games,
                 rng,
@@ -184,7 +197,7 @@ def main() -> None:
         eval_wr = ""
         if args.eval_every and (it + 1) % args.eval_every == 0:
             wr = _eval_vs_heuristic(
-                net, meta, deck, device, args.eval_games, args.sims, args.dets, rng
+                net, meta, eval_deck, device, args.eval_games, args.sims, args.dets, rng
             )
             eval_wr = f"{wr:.3f}"
             print(f"  [eval] iter {it}: NN-MCTS vs heuristic 勝率 = {wr:.3f}")
