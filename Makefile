@@ -22,7 +22,8 @@ RUN     := $(COMPOSE) run --rm dev
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
         league league-resume league-overnight league-1h \
-        league-explore league-explore-1h league-explore-overnight submission train \
+        league-explore league-explore-1h league-explore-overnight submission \
+        train train-1h train-overnight \
         build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキリーグの既定パラメータ（make 変数で上書き可） --------------------
@@ -120,9 +121,20 @@ league-explore-overnight: ## 一晩の探索プリセット（約4h・別アー�
 		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
 # === Phase 3 学習（Docker・torch/GPU） =====================================
-TRAIN_ARGS ?=
+# 反復回数は時間の目安（実測 約30秒/反復・GPU）。ゲーム長やGPUで変動するので調整可。
+TRAIN_ARGS       ?=
+TRAIN_ITERS_1H   ?= 100
+TRAIN_ITERS_NIGHT ?= 800
 train: ## AlphaZero 反復学習（Docker）。例: make train TRAIN_ARGS="--iterations 20 --games 16"
 	$(RUN) python scripts/train_alphazero.py $(TRAIN_ARGS)
+
+train-1h: ## 約1時間の継続学習（resume＝iter300等から続行・vs heuristic評価付き）
+	$(RUN) python scripts/train_alphazero.py --resume --iterations $(TRAIN_ITERS_1H) \
+		--eval-every 50 --eval-games 12 $(TRAIN_ARGS)
+
+train-overnight: ## 一晩の継続学習（約7h・resume で続行・評価付き）
+	$(RUN) python scripts/train_alphazero.py --resume --iterations $(TRAIN_ITERS_NIGHT) \
+		--eval-every 100 --eval-games 12 $(TRAIN_ARGS)
 
 # === 提出 ==================================================================
 submission: ## 提出パッケージ models/submission.tar.gz を作成（champion＋ISMCTS＋cg＋deck）

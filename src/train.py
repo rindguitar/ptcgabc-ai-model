@@ -18,9 +18,37 @@ def save_net(net: PVNet, path: str) -> None:
 
 
 def load_net(path: str, device: str = "cpu") -> PVNet:
-    """保存済みネットを読み込む."""
+    """保存済みネットを読み込む（厳密一致）."""
     net = PVNet()
     net.load_state_dict(torch.load(path, map_location=device, weights_only=True))
+    return net
+
+
+def load_net_warmstart(path: str, device: str = "cpu") -> PVNet:
+    """特徴量を末尾追加で拡張した新アーキへ、旧重みを引き継いで読み込む（ウォームスタート）.
+
+    入力に接する層（trunk[0] / policy_head[0]）だけ形が変わる。旧重みを**新しい大きい重みの
+    先頭スロットへコピー**し、**増えた入力列は 0** にする。こうすると新特徴は初期状態で出力に
+    影響せず、学習開始時の挙動は旧モデルと一致する（iter120 等の進捗を破棄しない）。
+
+    前提: 新特徴は obs/action ベクトルの**末尾**に追加されていること（先頭の並びが不変）。
+    形が完全一致する層はそのままコピー。新アーキで縮んだ次元には未対応（拡張専用）。
+    """
+    net = PVNet()
+    old = torch.load(path, map_location=device, weights_only=True)
+    new_sd = net.state_dict()
+    merged = {}
+    for k, new_w in new_sd.items():
+        ow = old.get(k)
+        if ow is None or ow.shape == new_w.shape:
+            merged[k] = ow if ow is not None else new_w
+            continue
+        # 入力次元が拡大した層: 0 埋めの新テンソルに旧重みを先頭スロットへ複写
+        w = torch.zeros_like(new_w)
+        slices = tuple(slice(0, min(o, n)) for o, n in zip(ow.shape, new_w.shape))
+        w[slices] = ow[slices]
+        merged[k] = w
+    net.load_state_dict(merged)
     return net
 
 

@@ -32,7 +32,7 @@ from net import PVNet  # noqa: E402
 from nn_eval import make_net_evaluator  # noqa: E402
 from nn_mcts import make_nn_mcts_agent  # noqa: E402
 from selfplay import generate_samples  # noqa: E402
-from train import load_net, save_net, train  # noqa: E402
+from train import load_net, load_net_warmstart, save_net, train  # noqa: E402
 
 
 def _eval_vs_heuristic(net, meta, deck, device, games, sims, dets, rng) -> float:
@@ -86,8 +86,15 @@ def main() -> None:
     rng = random.Random(args.seed)
 
     if args.resume and os.path.exists(args.out):
-        net = load_net(args.out, device)
-        print(f"レジューム: {args.out} を読み込み（device={device}）")
+        try:
+            net = load_net(args.out, device)
+            print(f"レジューム: {args.out} を読み込み（device={device}）")
+        except RuntimeError:
+            # 特徴量を拡張した等で形が変わった場合は旧重みを引き継ぐ（末尾追加前提）
+            net = load_net_warmstart(args.out, device)
+            print(
+                f"レジューム(ウォームスタート): {args.out} の旧重みを引き継ぎ（device={device}）"
+            )
     else:
         net = PVNet()
         print(f"新規ネットで開始（device={device}）")

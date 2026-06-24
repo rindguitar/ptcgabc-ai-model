@@ -29,6 +29,7 @@ from features import ACTION_FEAT_LEN, OBS_FEAT_LEN  # noqa: E402
 from net import PVNet  # noqa: E402
 from nn_eval import make_net_evaluator  # noqa: E402
 from nn_mcts import make_nn_mcts_agent  # noqa: E402
+from train import load_net_warmstart  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -80,6 +81,34 @@ def test_net_evaluator(meta):
         assert abs(sum(priors) - 1.0) < 1e-5
     finally:
         battle_finish()
+
+
+def test_warmstart_inherits_old_weights(tmp_path):
+    """特徴量を末尾追加で拡張した新アーキへ、旧重みが先頭スロットへ複写され新列は 0 になる."""
+    from features import ACTION_CARD_FEAT, HAND_FEAT
+
+    # 新アーキの state_dict から「拡張前(小)」の重みを作る: 入力に接する列を末尾分だけ削る
+    new_net = PVNet()
+    sd = new_net.state_dict()
+    old = dict(sd)
+    old["trunk.0.weight"] = sd["trunk.0.weight"][:, : OBS_FEAT_LEN - HAND_FEAT].clone()
+    old["policy_head.0.weight"] = sd["policy_head.0.weight"][
+        :, : 256 + ACTION_FEAT_LEN - ACTION_CARD_FEAT
+    ].clone()
+    path = tmp_path / "old.pt"
+    torch.save(old, path)
+
+    net = load_net_warmstart(str(path))
+    w = net.state_dict()["trunk.0.weight"]
+    assert w.shape == (256, OBS_FEAT_LEN)
+    # 旧列は一致、末尾の新列(HAND_FEAT)は 0
+    assert torch.allclose(w[:, : OBS_FEAT_LEN - HAND_FEAT], old["trunk.0.weight"])
+    assert torch.count_nonzero(w[:, OBS_FEAT_LEN - HAND_FEAT :]) == 0
+    pw = net.state_dict()["policy_head.0.weight"]
+    assert torch.count_nonzero(pw[:, 256 + ACTION_FEAT_LEN - ACTION_CARD_FEAT :]) == 0
+    # 新次元で forward が通る
+    value, logits = net(torch.randn(OBS_FEAT_LEN), torch.randn(5, ACTION_FEAT_LEN))
+    assert 0.0 <= float(value) <= 1.0 and logits.shape == (5,)
 
 
 def test_nn_mcts_with_net(meta):

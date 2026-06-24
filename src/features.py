@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 
 from cards import CardMeta
-from cg.api import Observation, PlayerState, Pokemon
+from cg.api import CardType, Observation, PlayerState, Pokemon
 
 # --- 各ブロックの次元（定数として一元管理） --------------------------------
 N_ENERGY_TYPES = 12  # EnergyType 0..11
@@ -26,8 +26,15 @@ POKEMON_FEAT = 1 + 1 + 1 + 1 + N_ENERGY_TYPES + 1 + 1
 PLAYER_FEAT = POKEMON_FEAT + 5 + MAX_BENCH * POKEMON_FEAT + 5
 # グローバル: turn, is_first, 4フラグ, stadium有無
 GLOBAL_FEAT = 1 + 1 + 4 + 1
-OBS_FEAT_LEN = GLOBAL_FEAT + 2 * PLAYER_FEAT
-ACTION_FEAT_LEN = N_OPTION_TYPES + 2  # type one-hot + ダメージ + ターゲット有無
+# 自分の手札資源（特性/トレーナー学習用・末尾に追加）。トレーナーは挙動が異なるため種別ごとに分ける:
+# ポケモン / グッズ / サポート / スタジアム / どうぐ / エネ / 特性持ちポケモン の 7 種。
+HAND_FEAT = 7
+# 観測ベクトル長。HAND_FEAT は**末尾**に足す（ウォームスタートで旧重みを先頭へ流用するため）。
+OBS_FEAT_LEN = GLOBAL_FEAT + 2 * PLAYER_FEAT + HAND_FEAT
+# 行動の対象カードのメタ（末尾に追加）: 特性有無 / 威力効率 / HP
+ACTION_CARD_FEAT = 3
+# 行動特徴量長。ACTION_CARD_FEAT は**末尾**に足す（同上・ウォームスタート用）。
+ACTION_FEAT_LEN = N_OPTION_TYPES + 2 + ACTION_CARD_FEAT
 
 
 def observation_feature_size() -> int:
@@ -85,6 +92,41 @@ def _encode_player(ps: PlayerState) -> list[float]:
     return feats
 
 
+def _encode_hand(ps: PlayerState, meta: CardMeta) -> list[float]:
+    """自分の手札の種別構成を符号化（末尾追加・特性/トレーナー判断の手掛かり）.
+
+    手札カードは id（cardId）を持つ。トレーナーは挙動が異なるため種別ごとに分けて数える
+    （サポートは1ターン1枚・グッズは無制限 等）。手札非公開（相手）や None のときは全 0。
+    意味（効果文）は読まず、種別とメタ数値のみ使う。
+    """
+    n_poke = n_item = n_supporter = n_stadium = n_tool = n_energy = n_ability = 0
+    for card in ps.hand or []:
+        ct = meta.card_type.get(card.id)
+        if ct == CardType.POKEMON:
+            n_poke += 1
+            if meta.has_ability.get(card.id):
+                n_ability += 1
+        elif ct == CardType.ITEM:
+            n_item += 1
+        elif ct == CardType.SUPPORTER:
+            n_supporter += 1
+        elif ct == CardType.STADIUM:
+            n_stadium += 1
+        elif ct == CardType.TOOL:
+            n_tool += 1
+        elif ct in (CardType.BASIC_ENERGY, CardType.SPECIAL_ENERGY):
+            n_energy += 1
+    return [
+        min(n_poke, 10) / 10,
+        min(n_item, 6) / 6,
+        min(n_supporter, 4) / 4,
+        min(n_stadium, 3) / 3,
+        min(n_tool, 4) / 4,
+        min(n_energy, 10) / 10,
+        min(n_ability, 6) / 6,
+    ]
+
+
 def encode_observation(obs: Observation, meta: CardMeta) -> np.ndarray:
     """観測（自分視点）を固定長 float32 ベクトルに符号化する.
 
@@ -106,13 +148,15 @@ def encode_observation(obs: Observation, meta: CardMeta) -> np.ndarray:
         float(len(st.stadium) > 0),
     ]
     feats = glob + _encode_player(st.players[yi]) + _encode_player(st.players[1 - yi])
+    feats += _encode_hand(st.players[yi], meta)  # 末尾追加（ウォームスタート対応）
     return np.asarray(feats, dtype=np.float32)
 
 
 def encode_actions(obs: Observation, meta: CardMeta) -> np.ndarray:
     """合法手（select.option）を (手数 × ACTION_FEAT_LEN) の行列に符号化する.
 
-    各手: OptionType の one-hot ＋ ワザのダメージ（正規化）＋ ターゲットを持つか。
+    各手: OptionType の one-hot ＋ ワザのダメージ（正規化）＋ ターゲット有無
+    ＋ 対象カードのメタ（特性有無 / 威力効率 / HP・末尾追加）。
     select が None のときは (0, ACTION_FEAT_LEN) を返す。
     """
     sel = obs.select
@@ -127,5 +171,10 @@ def encode_actions(obs: Observation, meta: CardMeta) -> np.ndarray:
         damage = meta.attack_damage(o.attackId) if o.attackId is not None else 0
         row.append(min(damage, 300) / 300)
         row.append(1.0 if (o.inPlayArea is not None or o.cardId) else 0.0)
+        # 対象カードのメタ（cardId>0 のとき。特性発動/トレーナーPLAY/進化等の質を表す）
+        cid = o.cardId or 0
+        row.append(1.0 if meta.has_ability.get(cid) else 0.0)
+        row.append(min(meta.best_efficiency.get(cid, 0.0), 60) / 60)
+        row.append(min(meta.hp.get(cid, 0), 400) / 400)
         rows.append(row)
     return np.asarray(rows, dtype=np.float32)

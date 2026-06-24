@@ -23,6 +23,7 @@ from cg.game import battle_finish, battle_select, battle_start  # noqa: E402
 from deck import load_deck  # noqa: E402
 from features import (  # noqa: E402
     ACTION_FEAT_LEN,
+    HAND_FEAT,
     OBS_FEAT_LEN,
     encode_actions,
     encode_observation,
@@ -81,6 +82,22 @@ def test_action_encoding_matches_options(meta):
         assert np.all(np.isfinite(mat))
         # one-hot 部分は各行ちょうど1つ立つ（既知の OptionType の範囲なら）
         assert np.all(mat[:, :17].sum(axis=1) <= 1.0 + 1e-6)
+    finally:
+        battle_finish()
+
+
+def test_hand_block_reflects_hand(meta):
+    """末尾の手札ブロックが [0,1] の有限値で、手札がある局面では非ゼロを含む."""
+    deck = load_deck(DECK)
+    obs = _advance_to_main(deck, random.Random(0), meta)
+    try:
+        assert obs is not None
+        vec = encode_observation(obs, meta)
+        hand_block = vec[-HAND_FEAT:]
+        assert hand_block.shape == (HAND_FEAT,)
+        assert np.all((hand_block >= 0.0) & (hand_block <= 1.0))
+        # turn>=3 の MAIN なので手札があり、種別構成のどれかは立つはず
+        assert hand_block.any()
     finally:
         battle_finish()
 
