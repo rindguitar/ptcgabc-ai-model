@@ -21,39 +21,22 @@ RUN     := $(COMPOSE) run --rm dev
 
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
-        league league-resume league-overnight league-1h \
-        league-explore league-explore-1h league-explore-overnight submission \
-        train train-1h train-overnight distill distill-1h distill-overnight \
-        gauntlet eval-net eval-deck champion-gate ratchet ratchet-overnight \
-        build rebuild shell jupyter gpu-check exec up down clean
+        league-explore-1h league-explore-overnight ratchet ratchet-overnight \
+        gauntlet eval-deck champion-gate \
+        train distill distill-1h distill-overnight eval-net \
+        submission build rebuild shell jupyter gpu-check exec up down clean
 
-# --- デッキリーグの既定パラメータ（make 変数で上書き可） --------------------
-# 例: make league LEAGUE_GAMES=8 LEAGUE_ITERS=8
-# LEAGUE_ARGS は任意の追加フラグ（例: LEAGUE_ARGS=--resume）。
-# 評価操縦は ISMCTS（特性/効果/トレーナーを扱える）。heuristic より桁違いに遅いので
-# games/pop/gens は小さめが既定。各反復でチェックポイント保存＝時間が来たら止めて resume 可。
+# --- デッキ探索（ratchet が内部で使う）の既定パラメータ --------------------
+# 操縦は ISMCTS（特性/効果/トレーナーを扱える）。相手は models/gauntlet/ があればそれ（多様化）。
+# 各反復でチェックポイント保存＝止めても再開可。LEAGUE_SEED は実行ごとにランダム（毎回別探索）。
 LEAGUE_PILOT      ?= ismcts
 LEAGUE_TIMEBUDGET ?= 0.05
 _PILOT_FLAGS       = --pilot $(LEAGUE_PILOT) --time-budget $(LEAGUE_TIMEBUDGET)
-LEAGUE_CAP     ?= 10
-LEAGUE_ITERS   ?= 6
-LEAGUE_GAMES   ?= 4
-LEAGUE_POP     ?= 6
-LEAGUE_GENS    ?= 3
-# 既定は実行ごとにランダム（素のコマンドを繰り返すと別探索→incumbent が最良を保持し世代更新）。
-# 再現したいときは make league LEAGUE_SEED=0 のように固定する。
 LEAGUE_SEED    ?= $(shell python3 -c 'import random;print(random.randrange(2**31))')
-LEAGUE_PLATEAU ?= 4
 LEAGUE_ARGS    ?=
-# 既存チャンピオンがあれば自動で固定の試験官(seed)に取り込む（無ければメタのみ）。
-# メタのみで回したいときは make league LEAGUE_EXTRA= で解除。
+# 既存チャンピオンを固定の試験官(seed)に自動取り込み（探索の起点・無ければ相手プールのみ）。
 LEAGUE_EXTRA   ?= $(wildcard models/champion_deck.csv)
 _EXTRA_FLAG     = $(if $(LEAGUE_EXTRA),--extra-seeds $(LEAGUE_EXTRA),)
-# 探索パラメータ（既定OFF＝従来の1軸refine）。league/league-resume で変数指定すれば探索ON。
-# 例: make league LEAGUE_MAXSWAPS=12 LEAGUE_EXPLORE=0.3
-LEAGUE_MAXSWAPS ?= 1
-LEAGUE_EXPLORE  ?= 0
-_EXPLORE_FLAGS   = --max-swaps $(LEAGUE_MAXSWAPS) --explore $(LEAGUE_EXPLORE)
 
 # --- ヘルプ -----------------------------------------------------------------
 help: ## このヘルプを表示
@@ -89,63 +72,26 @@ bench: ## baseline 評価（ヒューリスティック vs ランダム・100試
 # まとめて品質チェック（Lint + フォーマット差分 + テスト）。
 check: lint fmt-check test ## lint・fmt-check・test を順に実行
 
-# === デッキリーグ（bounded double-oracle） ================================
-# 出力: models/champion_deck.csv / チェックポイント: models/league/state.json（追跡外）
-# 操縦は ISMCTS（既定）。time は目安・ゲーム長で変動。各反復で保存＝途中で止めて league-resume 可。
-league: ## ISMCTSリーグ実行（探索: LEAGUE_EXPLORE=0.3 LEAGUE_MAXSWAPS=12 / heuristicに戻す: LEAGUE_PILOT=heuristic）
-	$(PY) src/league.py --cap $(LEAGUE_CAP) --iters $(LEAGUE_ITERS) \
-		--games $(LEAGUE_GAMES) --pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) \
-		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) \
-		$(_PILOT_FLAGS) $(_EXPLORE_FLAGS) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-
-league-resume: ## チェックポイントから続行（make league-resume LEAGUE_ITERS=4）
-	$(PY) src/league.py --cap $(LEAGUE_CAP) --iters $(LEAGUE_ITERS) \
-		--games $(LEAGUE_GAMES) --pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) \
-		--plateau $(LEAGUE_PLATEAU) --seed $(LEAGUE_SEED) --resume \
-		$(_PILOT_FLAGS) $(_EXPLORE_FLAGS) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-
-league-overnight: ## ISMCTS一晩プリセット（約6h目安: cap12/iters10/games6/pop6/gens3・止めたら resume）
-	$(PY) src/league.py --cap 12 --iters 10 --games 6 --pop 6 --gens 3 \
-		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-
-league-1h: ## ISMCTS約1時間プリセット（cap10/iters6/games4/pop6/gens3）
-	$(PY) src/league.py --cap 10 --iters 6 --games 4 --pop 6 --gens 3 \
-		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-
-league-explore: ## ISMCTS多軸探索（変数で調整・大変異＋多様性注入・非弱化維持）
-	$(PY) src/league.py --cap $(LEAGUE_CAP) --iters $(LEAGUE_ITERS) --games $(LEAGUE_GAMES) \
-		--pop $(LEAGUE_POP) --gens $(LEAGUE_GENS) --plateau 99 --seed $(LEAGUE_SEED) \
-		$(_PILOT_FLAGS) --max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-
-league-explore-1h: ## ISMCTS約1時間の探索プリセット（別アーキタイプ/カードを広く探す）
+# === デッキ探索（ratchet が内部で使用・通常は ratchet 経由で呼ぶ） ==========
+# 出力: models/champion_deck.csv / チェックポイント: models/league/state.json（追跡外）。
+# 相手は models/gauntlet/ があればそれ（多様化）。止めても次回 league（同じ）で resume。
+league-explore-1h: ## デッキ探索 約1時間（ratchet が使用・単体実行も可）
 	$(PY) src/league.py --cap 10 --iters 6 --games 4 --pop 6 --gens 3 \
 		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) \
 		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
-league-explore-overnight: ## ISMCTS一晩の探索プリセット（約6h目安・別アーキタイプを広く探す）
+league-explore-overnight: ## デッキ探索 一晩（約6h・ratchet-overnight が使用）
 	$(PY) src/league.py --cap 12 --iters 10 --games 6 --pop 6 --gens 3 \
 		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) \
 		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
-# === Phase 3 学習（Docker・torch/GPU） =====================================
-# 反復回数は時間の目安（実測 約30秒/反復・GPU）。ゲーム長やGPUで変動するので調整可。
-TRAIN_ARGS       ?=
-TRAIN_ITERS_1H   ?= 100
-TRAIN_ITERS_NIGHT ?= 800
-# 学習デッキ群: 先頭=評価用に固定(data/deck.csv で実行間比較可)、以降にチャンピオン＋メタを足して
-# 多様化（1デッキ過学習を避け、league で色々なデッキを回せる汎用 pilot に近づける）。
+# === Phase 3 NN（Docker・torch/GPU）=========================================
+# 学習デッキ群: チャンピオン＋メタを巡回（1デッキ過学習を避け汎用 pilot 化）。先頭=評価固定。
 TRAIN_DECKS ?= data/deck.csv $(wildcard models/champion_deck.csv) $(wildcard data/*_Deck.csv)
 _DECKS_FLAG  = --deck $(TRAIN_DECKS)
-train: ## AlphaZero 反復学習（Docker）。例: make train TRAIN_ARGS="--iterations 20 --games 16"
-	$(RUN) python scripts/train_alphazero.py $(TRAIN_ARGS)
-
-train-1h: ## 約1時間の継続学習（resume・複数デッキ・vs heuristic評価付き）
-	$(RUN) python scripts/train_alphazero.py --resume --iterations $(TRAIN_ITERS_1H) \
-		--eval-every 50 --eval-games 24 $(_DECKS_FLAG) $(TRAIN_ARGS)
-
-train-overnight: ## 一晩の継続学習（約7h・resume・複数デッキ・評価付き）
-	$(RUN) python scripts/train_alphazero.py --resume --iterations $(TRAIN_ITERS_NIGHT) \
-		--eval-every 100 --eval-games 24 $(_DECKS_FLAG) $(TRAIN_ARGS)
+TRAIN_ARGS  ?=
+train: ## NN生 self-play（上級者向け・例: make train TRAIN_ARGS="--resume --iterations 50")
+	$(RUN) python scripts/train_alphazero.py $(_DECKS_FLAG) $(TRAIN_ARGS)
 
 # 蒸留: ISMCTS 教師を真似て安定した強い土台を作る。複数デッキ巡回＝汎用 pilot 化。
 # self-play(pvnet.pt)とは別ファイルに保存し --resume で「ちょくちょく継ぎ足し」できる（日中1h×複数回で蓄積）。
