@@ -24,6 +24,7 @@ RUN     := $(COMPOSE) run --rm dev
         league league-resume league-overnight league-1h \
         league-explore league-explore-1h league-explore-overnight submission \
         train train-1h train-overnight distill eval-net eval-deck champion-gate \
+        ratchet ratchet-overnight \
         build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキリーグの既定パラメータ（make 変数で上書き可） --------------------
@@ -179,6 +180,21 @@ GATE_GAMES ?= 40
 GATE_ARGS  ?=
 champion-gate: ## league 後の keep-best 判定（新が best を上回った時だけ昇格・ホスト）
 	$(PY) scripts/champion_gate.py --games $(GATE_GAMES) $(GATE_ARGS)
+
+# 1サイクル自動化: best を起点に探索→確実改善だけ採用。回し続けるほど champion_best が単調改善。
+# 探索の長さは変更可: make ratchet RATCHET_LEAGUE=league-explore-overnight
+RATCHET_LEAGUE ?= league-explore-1h
+ratchet: ## 探索→40試合ゲートを1発（best起点・確実改善だけ採用・全ホストCPU）
+	@if [ -f models/champion_best.csv ]; then \
+		cp models/champion_best.csv models/champion_deck.csv; \
+		echo "起点を champion_best に設定（best から探索）"; \
+	else echo "best 未作成: 現 champion_deck から開始（gate が初回 best を作成）"; fi
+	$(MAKE) $(RATCHET_LEAGUE)
+	$(MAKE) champion-gate
+	@echo "ratchet 完了。最良は models/champion_best.csv（提出はこれを使う）"
+
+ratchet-overnight: ## 一晩版 ratchet（league-explore-overnight→40試合ゲート・best起点）
+	$(MAKE) ratchet RATCHET_LEAGUE=league-explore-overnight
 
 # === 提出 ==================================================================
 submission: ## 提出パッケージ models/submission.tar.gz を作成（champion＋ISMCTS＋cg＋deck）
