@@ -75,8 +75,8 @@ docker compose up jupyter   # http://localhost:${JUPYTER_PORT}
 `models/champion_best.csv` を単調改善させる（ノイズで劣化しない）。**提出は best を使う**。
 
 ```bash
-make ratchet              # 1サイクル: 探索→ゲート→改善だけ採用（CPU・gauntletありで約2h）
-make ratchet-overnight    # 一晩版（じっくり探索）
+make ratchet              # 1サイクル: 探索→ゲート→改善だけ採用（gauntletありで一晩規模）
+make ratchet-overnight    # さらに長い探索（gauntletありでは長すぎる場合あり・要調整）
 ```
 - `→ 更新`＝本物の前進、`据え置き`＝ノイズ劣化を阻止（正常）。
 - 1h しか取れない時は分割: `make league-explore-1h`（探索のみ）→ 後で `make champion-gate GATE_GAMES=20`。
