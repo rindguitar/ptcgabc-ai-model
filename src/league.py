@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import random
@@ -21,7 +22,7 @@ from collections import Counter
 from agents import Agent, make_heuristic_agent
 from cards import CardMeta, load_card_meta
 from deck import DECK_SIZE, is_legal, save_deck
-from deckopt import _load_pool, default_opponent_paths, evolve
+from deckopt import _load_pool, evolve
 from harness import evaluate_decks, evaluate_decks_with_factory
 
 
@@ -323,7 +324,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    seed_paths = args.seeds or default_opponent_paths()
+    # 探索(league)は速い5メタを相手にする（多様な gauntlet は重く内側ループに不向き）。
+    # 過学習対策の多様性は gate / eval-deck 側（default_opponent_paths＝gauntlet優先）で担保する。
+    seed_paths = args.seeds or sorted(glob.glob("data/*.csv"))
     seeds = _load_pool(seed_paths)
     # extra-seeds 追加前の実メタを固定基準として保持（実行間で比較できる最悪ケース用）
     reference_decks = [list(d) for d in seeds]

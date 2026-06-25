@@ -21,8 +21,7 @@ RUN     := $(COMPOSE) run --rm dev
 
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
-        league-explore-1h league-explore-overnight ratchet ratchet-overnight \
-        gauntlet eval-deck champion-gate \
+        ratchet ratchet-overnight gauntlet eval-deck champion-gate \
         train distill distill-1h distill-overnight eval-net \
         submission build rebuild shell jupyter gpu-check exec up down clean
 
@@ -30,7 +29,7 @@ RUN     := $(COMPOSE) run --rm dev
 # 操縦は ISMCTS（特性/効果/トレーナーを扱える）。相手は models/gauntlet/ があればそれ（多様化）。
 # 各反復でチェックポイント保存＝止めても再開可。LEAGUE_SEED は実行ごとにランダム（毎回別探索）。
 LEAGUE_PILOT      ?= ismcts
-LEAGUE_TIMEBUDGET ?= 0.05
+LEAGUE_TIMEBUDGET ?= 0.03
 _PILOT_FLAGS       = --pilot $(LEAGUE_PILOT) --time-budget $(LEAGUE_TIMEBUDGET)
 LEAGUE_SEED    ?= $(shell python3 -c 'import random;print(random.randrange(2**31))')
 LEAGUE_ARGS    ?=
@@ -71,19 +70,6 @@ bench: ## baseline 評価（ヒューリスティック vs ランダム・100試
 
 # まとめて品質チェック（Lint + フォーマット差分 + テスト）。
 check: lint fmt-check test ## lint・fmt-check・test を順に実行
-
-# === デッキ探索（ratchet が内部で使用・通常は ratchet 経由で呼ぶ） ==========
-# 出力: models/champion_deck.csv / チェックポイント: models/league/state.json（追跡外）。
-# 相手は models/gauntlet/ があればそれ（多様化）。止めても次回 league（同じ）で resume。
-league-explore-1h: ## デッキ探索 約1時間（ratchet が使用・単体実行も可）
-	$(PY) src/league.py --cap 10 --iters 6 --games 4 --pop 6 --gens 3 \
-		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) \
-		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-
-league-explore-overnight: ## デッキ探索 一晩（約6h・ratchet-overnight が使用）
-	$(PY) src/league.py --cap 12 --iters 10 --games 6 --pop 6 --gens 3 \
-		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) \
-		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 
 # === Phase 3 NN（Docker・torch/GPU）=========================================
 # 学習デッキ群: チャンピオン＋メタを巡回（1デッキ過学習を避け汎用 pilot 化）。先頭=評価固定。
@@ -130,34 +116,37 @@ gauntlet: ## 多様な相手デッキ群 models/gauntlet/ を生成（メタ＋�
 # デッキ強さの確定評価（vs 相手プール・ISMCTS操縦・多めの試合）。league内部の小サンプル(6試合)では
 # 判定できない「本当にデッキが強くなったか」を測る。ホスト(CPU)。champions/ のバックアップと比較可。
 EVAL_DECK       ?= models/champion_deck.csv
-# 既定40試合: 20では運の振れで誤判断する（実測 worst 0.35→0.625 と激変）ため確定判断は40+。
-EVAL_DECK_GAMES ?= 40
+# 相手が gauntlet(16デッキ)なら 20試合でも合計十分（平均は安定・最悪は相手数で網羅）。厳密化は ↑。
+EVAL_DECK_GAMES ?= 20
 EVAL_DECK_ARGS  ?=
-eval-deck: ## デッキ強さの確定評価（vs メタ・ISMCTS・既定 champion 20試合・ホスト）
+eval-deck: ## デッキ強さの確定評価（vs 相手プール・ISMCTS・既定 champion・ホスト）
 	$(PY) scripts/eval_deck.py --deck $(EVAL_DECK) --games $(EVAL_DECK_GAMES) $(EVAL_DECK_ARGS)
 
 # 信頼ラチェット: league 後に挟むと、新チャンピオンが best を信頼試合数で上回った時だけ昇格。
 # ノイズドリフトを止め、回し続けるほど models/champion_best.csv が単調に良くなる。提出は best を使う。
-# 既定40試合: 20では判断がノイズに飲まれる（worst が ±0.2 振れる）ため keep-best は40+で判定。
-GATE_GAMES ?= 40
+# 相手が gauntlet(16)なら 20試合で合計十分。厳密に見たいときは GATE_GAMES=40。
+GATE_GAMES ?= 20
 GATE_ARGS  ?=
 champion-gate: ## league 後の keep-best 判定（新が best を上回った時だけ昇格・ホスト）
 	$(PY) scripts/champion_gate.py --games $(GATE_GAMES) $(GATE_ARGS)
 
-# 1サイクル自動化: best を起点に探索→確実改善だけ採用。回し続けるほど champion_best が単調改善。
-# 探索の長さは変更可: make ratchet RATCHET_LEAGUE=league-explore-overnight
-RATCHET_LEAGUE ?= league-explore-1h
-ratchet: ## 探索→40試合ゲートを1発（best起点・確実改善だけ採用・全ホストCPU）
+# デッキ探索→ゲートを1サイクル（best起点・確実改善だけ採用）。回すほど champion_best が単調改善。
+# 探索(league)は速い5メタ・判定(gate)は多様 gauntlet。RATCHET_ITERS で時間調整
+# （1≒約50分・3≒約1.5h・6≒約3h）。league はチェックポイント保存＝途中で止めても無駄にならない。
+RATCHET_ITERS ?= 3
+ratchet: ## デッキ探索→ゲート1サイクル（best起点／時短: RATCHET_ITERS=1, じっくり: =6）
 	@if [ -f models/champion_best.csv ]; then \
 		cp models/champion_best.csv models/champion_deck.csv; \
 		echo "起点を champion_best に設定（best から探索）"; \
 	else echo "best 未作成: 現 champion_deck から開始（gate が初回 best を作成）"; fi
-	$(MAKE) $(RATCHET_LEAGUE)
-	$(MAKE) champion-gate
+	$(PY) src/league.py --cap 12 --iters $(RATCHET_ITERS) --games 4 --pop 6 --gens 3 \
+		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) \
+		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
+	$(PY) scripts/champion_gate.py --games 20 --time-budget 0.05 $(GATE_ARGS)
 	@echo "ratchet 完了。最良は models/champion_best.csv（提出はこれを使う）"
 
-ratchet-overnight: ## 一晩版 ratchet（league-explore-overnight→40試合ゲート・best起点）
-	$(MAKE) ratchet RATCHET_LEAGUE=league-explore-overnight
+ratchet-overnight: ## 一晩版 ratchet（探索を多め iters20・約6h・翌朝 eval-deck で確認）
+	$(MAKE) ratchet RATCHET_ITERS=20
 
 # === 提出 ==================================================================
 submission: ## 提出パッケージ models/submission.tar.gz を作成（champion＋ISMCTS＋cg＋deck）

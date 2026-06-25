@@ -75,11 +75,12 @@ docker compose up jupyter   # http://localhost:${JUPYTER_PORT}
 `models/champion_best.csv` を単調改善させる（ノイズで劣化しない）。**提出は best を使う**。
 
 ```bash
-make ratchet              # 1サイクル: 探索→ゲート→改善だけ採用（gauntletありで一晩規模）
-make ratchet-overnight    # さらに長い探索（gauntletありでは長すぎる場合あり・要調整）
+make ratchet                  # 1サイクル: 探索→ゲート→改善だけ採用（既定 約1.5h・CPU）
+make ratchet RATCHET_ITERS=1  # 時短（約50分）
+make ratchet-overnight        # 一晩版（探索多め・約6h）
 ```
 - `→ 更新`＝本物の前進、`据え置き`＝ノイズ劣化を阻止（正常）。
-- 1h しか取れない時は分割: `make league-explore-1h`（探索のみ）→ 後で `make champion-gate GATE_GAMES=20`。
+- 探索(league)は速い5メタ・判定(gate)は多様 gauntlet で過学習を防ぐ。時間は `RATCHET_ITERS` で調整。
 
 ### NN軸（GPU＋CPU・distill）
 
@@ -102,8 +103,9 @@ make eval-net EVAL_ARGS="--net models/pvnet_distill_best.pt"  # NN の強さ（v
 
 ### 相手プール（gauntlet）
 
-5枚のサンプルメタだけに最適化すると過学習して実戦で弱くなる。多様な相手に堅くするため
-ガントレットを生成しておくと、`league`/`eval-deck`/`champion-gate` が自動でそれを相手に使う。
+5枚のサンプルメタだけで判定すると過学習して実戦で弱くなる。多様な相手に堅くするため
+ガントレットを生成しておくと、**判定側**（`eval-deck`/`champion-gate`）が自動でそれを相手に使う
+（探索する `league` は速度優先で5メタのまま。過学習の歯止めは判定側で掛ける）。
 
 ```bash
 make gauntlet             # models/gauntlet/ を生成（メタ＋チャンピオン系＋全色mono-type）
