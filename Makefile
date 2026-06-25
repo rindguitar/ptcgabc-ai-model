@@ -24,7 +24,7 @@ RUN     := $(COMPOSE) run --rm dev
         league league-resume league-overnight league-1h \
         league-explore league-explore-1h league-explore-overnight submission \
         train train-1h train-overnight distill distill-1h distill-overnight \
-        eval-net eval-deck champion-gate ratchet ratchet-overnight \
+        gauntlet eval-net eval-deck champion-gate ratchet ratchet-overnight \
         build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキリーグの既定パラメータ（make 変数で上書き可） --------------------
@@ -176,7 +176,12 @@ EVAL_ARGS  ?=
 eval-net: ## 訓練済みNNの確定判断用 評価（既定: vs heuristic 40試合・Docker）
 	$(RUN) python scripts/eval_net.py --vs $(EVAL_VS) --games $(EVAL_GAMES) $(EVAL_ARGS)
 
-# デッキ強さの確定評価（vs メタ・ISMCTS操縦・多めの試合）。league内部の小サンプル(6試合)では
+# 多様ガントレット生成（過学習対策）。生成後は league/eval-deck/gate が自動でこれを相手に使う
+# （models/gauntlet/ があれば data/*.csv より優先）。相手が多彩になる分、評価/探索は遅くなる。
+gauntlet: ## 多様な相手デッキ群 models/gauntlet/ を生成（メタ＋チャンピオン系＋全色mono-type）
+	$(PY) scripts/make_gauntlet.py
+
+# デッキ強さの確定評価（vs 相手プール・ISMCTS操縦・多めの試合）。league内部の小サンプル(6試合)では
 # 判定できない「本当にデッキが強くなったか」を測る。ホスト(CPU)。champions/ のバックアップと比較可。
 EVAL_DECK       ?= models/champion_deck.csv
 # 既定40試合: 20では運の振れで誤判断する（実測 worst 0.35→0.625 と激変）ため確定判断は40+。

@@ -189,6 +189,16 @@ def evolve(
     return {"deck": best_deck, "fitness": best_fit, "history": history}
 
 
+def default_opponent_paths() -> list[str]:
+    """相手プールの既定パス。多様ガントレット(models/gauntlet/)があれば優先、無ければ data/*.csv.
+
+    5枚のサンプルメタだけに最適化すると過学習して実戦で弱くなるため、ガントレットがあれば
+    そちらを使って「多様な相手に堅い」方向へ寄せる。
+    """
+    g = sorted(glob.glob("models/gauntlet/*.csv"))
+    return g if g else sorted(glob.glob("data/*.csv"))
+
+
 def _load_pool(paths: list[str]) -> list[list[int]]:
     """60枚デッキの CSV 群をプールとして読み込む.
 

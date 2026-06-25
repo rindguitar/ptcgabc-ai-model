@@ -13,7 +13,6 @@ league 内部の評価は ISMCTS が遅く 6試合程度＝小サンプルで、
 from __future__ import annotations
 
 import argparse
-import glob
 import os
 import random
 import statistics
@@ -23,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src
 
 from cards import load_card_meta  # noqa: E402
 from deck import load_deck  # noqa: E402
-from deckopt import _load_pool  # noqa: E402
+from deckopt import _load_pool, default_opponent_paths  # noqa: E402
 from harness import evaluate_decks, evaluate_decks_with_factory  # noqa: E402
 from ismcts import make_ismcts_agent  # noqa: E402
 
@@ -79,7 +78,7 @@ def main() -> None:
 
     meta = load_card_meta()
     deck = load_deck(args.deck)
-    meta_paths = args.meta or sorted(glob.glob("data/*.csv"))
+    meta_paths = args.meta or default_opponent_paths()
     opps = [d for d in _load_pool(meta_paths) if d != deck]
     if not opps:
         print("評価相手（メタ）が見つかりません")

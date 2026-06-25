@@ -14,7 +14,6 @@ best が無ければ new をそのまま採用（初回）。ホスト(CPU)で�
 from __future__ import annotations
 
 import argparse
-import glob
 import os
 import random
 import shutil
@@ -24,7 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src
 
 from cards import load_card_meta  # noqa: E402
 from deck import load_deck  # noqa: E402
-from deckopt import _load_pool  # noqa: E402
+from deckopt import _load_pool, default_opponent_paths  # noqa: E402
 from eval_deck import eval_deck_vs_meta  # noqa: E402
 
 
@@ -63,7 +62,7 @@ def main() -> None:
         return
 
     meta = load_card_meta()
-    meta_paths = args.meta or sorted(glob.glob("data/*.csv"))
+    meta_paths = args.meta or default_opponent_paths()
     pool = _load_pool(meta_paths)
     best_deck = load_deck(args.best)
     # 公平比較のため同一相手・同一シードで両者を評価
