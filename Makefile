@@ -23,8 +23,8 @@ RUN     := $(COMPOSE) run --rm dev
 .PHONY: help deps lint format fmt-check test smoke bench check \
         league league-resume league-overnight league-1h \
         league-explore league-explore-1h league-explore-overnight submission \
-        train train-1h train-overnight distill eval-net eval-deck champion-gate \
-        ratchet ratchet-overnight \
+        train train-1h train-overnight distill distill-1h distill-overnight \
+        eval-net eval-deck champion-gate ratchet ratchet-overnight \
         build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキリーグの既定パラメータ（make 変数で上書き可） --------------------
@@ -147,14 +147,26 @@ train-overnight: ## 一晩の継続学習（約7h・resume・複数デッキ・�
 	$(RUN) python scripts/train_alphazero.py --resume --iterations $(TRAIN_ITERS_NIGHT) \
 		--eval-every 100 --eval-games 24 $(_DECKS_FLAG) $(TRAIN_ARGS)
 
-# 蒸留: ISMCTS 教師を真似て安定した強い土台を作る（自己対戦の崩壊を回避）。ISMCTS収集は遅い。
-# 既定で複数デッキ（チャンピオン＋メタ）を巡回＝汎用 pilot 化。出力先変更は DISTILL_ARGS="--out ..."。
+# 蒸留: ISMCTS 教師を真似て安定した強い土台を作る。複数デッキ巡回＝汎用 pilot 化。
+# self-play(pvnet.pt)とは別ファイルに保存し --resume で「ちょくちょく継ぎ足し」できる（日中1h×複数回で蓄積）。
+# 教師は強いほど良い(DISTILL_TB↑)が収集は遅い。最初から作り直すなら rm models/pvnet_distill.pt。
+# 評価は: make eval-net EVAL_ARGS="--net models/pvnet_distill_best.pt"
+DISTILL_OUT   ?= models/pvnet_distill.pt
+DISTILL_BEST  ?= models/pvnet_distill_best.pt
+DISTILL_TB    ?= 0.25
 DISTILL_ITERS ?= 60
 DISTILL_ARGS  ?=
-distill: ## ISMCTS蒸留学習（Docker）。複数デッキで汎用土台＋best自動保存
-	$(RUN) python scripts/train_alphazero.py --teacher ismcts \
+distill: ## ISMCTS蒸留（複数デッキ・強い教師・resume継ぎ足し）。長さは DISTILL_ITERS で
+	$(RUN) python scripts/train_alphazero.py --teacher ismcts --resume \
+		--out $(DISTILL_OUT) --best-out $(DISTILL_BEST) --teacher-time-budget $(DISTILL_TB) \
 		--iterations $(DISTILL_ITERS) --eval-every 20 --eval-games 24 \
 		$(_DECKS_FLAG) $(DISTILL_ARGS)
+
+distill-1h: ## 約1時間の蒸留（前回に継ぎ足し・日中ちょくちょく用）
+	$(MAKE) distill DISTILL_ITERS=50
+
+distill-overnight: ## 一晩の蒸留（継ぎ足し・強い教師0.3で多め・約7h目安）
+	$(MAKE) distill DISTILL_ITERS=350 DISTILL_TB=0.3
 
 # 確定判断用の offline 評価（試合数を増やして運の振れを抑える）。学習中の24は傾向把握用、
 # こちらは 40+ で「NN は heuristic/ISMCTS を超えたか」を判断する。例: make eval-net EVAL_GAMES=100
