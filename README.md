@@ -65,6 +65,64 @@ docker compose up jupyter   # http://localhost:${JUPYTER_PORT}
 
 設定値（イメージ名・GPU 数・ポート・パス等）はすべて `.env` で変更する。
 
+## ワークフロー（運用）
+
+2軸を回しながら、たまに評価する。`make help` で全コマンド一覧。
+
+### デッキ軸（CPU・ratchet）
+
+「best 起点で探索 → 確定試合数のゲートで“確実に良くなった時だけ”採用」を回し、
+`models/champion_best.csv` を単調改善させる（ノイズで劣化しない）。**提出は best を使う**。
+
+```bash
+make ratchet              # 1サイクル: 探索→ゲート→改善だけ採用（CPU・gauntletありで約2h）
+make ratchet-overnight    # 一晩版（じっくり探索）
+```
+- `→ 更新`＝本物の前進、`据え置き`＝ノイズ劣化を阻止（正常）。
+- 1h しか取れない時は分割: `make league-explore-1h`（探索のみ）→ 後で `make champion-gate GATE_GAMES=20`。
+
+### NN軸（GPU＋CPU・distill）
+
+ISMCTS を教師に蒸留し、特性/効果を扱える操縦 NN を育てる（`--resume` で継ぎ足し蓄積）。
+
+```bash
+make distill-1h           # 約1h・前回に継ぎ足し（日中ちょくちょく）
+make distill-overnight    # 一晩・強い教師で多め
+# 作り直したい時: rm models/pvnet_distill.pt
+```
+
+### 評価（たまに・確定判断）
+
+```bash
+make eval-deck                                  # 現 champion vs 相手プール（ISMCTS・多めの試合）
+make eval-deck EVAL_DECK=models/champions/champ_XXXX.csv  # 任意のデッキ
+make eval-net EVAL_ARGS="--net models/pvnet_distill_best.pt"  # NN の強さ（vs heuristic）
+```
+学習中の少試合 eval は運の振れが大きい。**判断は 40 試合以上**で行う。
+
+### 相手プール（gauntlet）
+
+5枚のサンプルメタだけに最適化すると過学習して実戦で弱くなる。多様な相手に堅くするため
+ガントレットを生成しておくと、`league`/`eval-deck`/`champion-gate` が自動でそれを相手に使う。
+
+```bash
+make gauntlet             # models/gauntlet/ を生成（メタ＋チャンピオン系＋全色mono-type）
+```
+チャンピオンが何度か更新されたら作り直す。
+
+### 提出
+
+```bash
+cp models/champion_best.csv models/champion_deck.csv
+make submission           # models/submission.tar.gz を作成 → Kaggle へはユーザーが提出
+```
+
+### 注意
+
+- `ratchet`（CPU）と `distill` の ISMCTS 収集（CPU）は競合するので**片方ずつ**。
+- gauntlet を入れると相手が増え評価/探索は遅くなる（その分、過学習しにくい）。
+- 長時間の学習・探索はユーザーが手動実行（`CLAUDE.md` 参照）。
+
 ## 開発メモ
 
 - 対戦は Kaggle 提供の **cabt Engine** 上で実行（提供物は Competition Data のため追跡外）。
