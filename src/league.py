@@ -293,15 +293,26 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0, help="乱数シード")
     parser.add_argument(
         "--pilot",
-        choices=["heuristic", "ismcts"],
+        choices=["heuristic", "ismcts", "nn"],
         default="heuristic",
-        help="評価操縦。ismcts は特性/効果を扱えるが遅い（games/pop/gens は小さめ推奨）",
+        help="評価操縦。ismcts=特性対応だが遅い / nn=蒸留NN-MCTS（ISMCTS同等を高速・要torch）",
     )
     parser.add_argument(
         "--time-budget",
         type=float,
         default=0.08,
         help="ismcts 操縦の1手あたり秒（小さいほど速いが弱い）",
+    )
+    parser.add_argument(
+        "--net",
+        default="models/pvnet_distill_best.pt",
+        help="pilot=nn のとき使う訓練済みネット",
+    )
+    parser.add_argument(
+        "--nn-sims",
+        type=int,
+        default=64,
+        help="pilot=nn の1手あたり MCTS 反復数",
     )
     parser.add_argument(
         "--plateau",
@@ -368,6 +379,29 @@ def main() -> None:
         print(
             f"評価操縦: ISMCTS（time_budget={args.time_budget}秒/手・heuristicより低速）"
         )
+    elif args.pilot == "nn":
+        # 蒸留 NN-MCTS：ISMCTS 同等の強さを ~1/4 の時間で（torch/GPU・要 Docker）。
+        import torch
+
+        from nn_eval import make_net_evaluator
+        from nn_mcts import make_nn_mcts_agent
+        from train import load_net
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        _net = load_net(args.net, device)
+        _ev = make_net_evaluator(_net, meta, device)
+
+        def eval_factory(my_deck, opp_deck):  # noqa: E731
+            return make_nn_mcts_agent(
+                meta,
+                my_deck,
+                opp_deck,
+                evaluator=_ev,
+                n_simulations=args.nn_sims,
+                n_determinizations=2,
+            )
+
+        print(f"評価操縦: NN-MCTS（{args.net}・sims={args.nn_sims}・device={device}）")
 
     result = run_league(
         seeds,
