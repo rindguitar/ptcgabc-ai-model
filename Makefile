@@ -36,8 +36,9 @@ LEAGUE_ARGS    ?=
 # 既存チャンピオンを固定の試験官(seed)に自動取り込み（探索の起点・無ければ相手プールのみ）。
 LEAGUE_EXTRA   ?= $(wildcard models/champion_deck.csv)
 _EXTRA_FLAG     = $(if $(LEAGUE_EXTRA),--extra-seeds $(LEAGUE_EXTRA),)
-# NN 操縦（蒸留 NN-MCTS）の既定。ISMCTS 同等の強さを ~1/4 時間で＝探索を高速化。
-NN_NET  ?= models/pvnet_distill_best.pt
+# NN 操縦の既定ネット。improve で ISMCTS を超えた net を優先し、無ければ蒸留(床)にフォールバック
+# （ratchet-nn は「ISMCTS を超えた強い NN」で探索するのが目的なので improve_best を使う）。
+NN_NET  ?= $(firstword $(wildcard models/pvnet_improve_best.pt) models/pvnet_distill_best.pt)
 NN_SIMS ?= 64
 
 # --- ヘルプ -----------------------------------------------------------------

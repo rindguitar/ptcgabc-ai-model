@@ -92,14 +92,18 @@ make ratchet-nn               # NN操縦の高速版（探索=蒸留NN-MCTS・Do
 操縦 NN を **2段**で育てる。蒸留(`distill`)で **ISMCTS 相当の床**を作り、improve(`improve`)で
 **self-play により床を超える**。蒸留だけでは教師(ISMCTS)が天井（≒五分）で止まるため、超えるには improve が要る。
 
+> ⚠️ **distill は最初の土台作りの一度きり**（NN を壊した時の作り直し用）。improve で ISMCTS を超えた後に
+> distill へ戻すと、教師=ISMCTS の天井(五分)へ NN を**引き戻して improve の成果を消す**。だから
+> 改善ループは **`distill`↔`improve` ではなく `improve`↔`ratchet-nn`**（NN強化↔強いNNでデッキ探索）。
+
 ```bash
-# 1段目: ISMCTS を教師に蒸留＝特性/効果を扱える安定した土台（pvnet_distill_best.pt）
-make distill-1h           # 約1h・前回に継ぎ足し（日中ちょくちょく）
+# 1段目（最初に一度）: ISMCTS を教師に蒸留＝特性/効果を扱える安定した土台（pvnet_distill_best.pt）
+make distill-1h           # 約1h
 make distill-overnight    # 一晩・強い教師で多め
-# 2段目: 蒸留ネットを種に self-play で ISMCTS 超えを狙う（pvnet_improve_best.pt）
-make improve-1h           # 約1h・前回に継ぎ足し
+# 2段目（以後ずっと）: 蒸留ネットを種に self-play で ISMCTS 超えを狙う（pvnet_improve_best.pt）
+make improve-1h           # 約1h・前回に継ぎ足し（種は初回のみ distill_best から）
 make improve              # 既定 iters40
-# 作り直したい時: rm models/pvnet_distill.pt（または pvnet_improve.pt）
+# 作り直したい時のみ: rm models/pvnet_distill.pt（または pvnet_improve.pt）
 ```
 - **なぜ improve で超えられるか**: MCTS(NN) は NN 単体より強い「方策改善演算子」。その**訪問回数分布
   (soft-π)** を教師に学ぶと NN が自分を上回っていく（AlphaZero の核）。以前 self-play が崩壊したのは
@@ -145,10 +149,11 @@ make submission           # models/submission.tar.gz を作成 → Kaggle へは
 
 ### 全体の回し方（まとめ）
 
-1. **デッキ軸**: `make ratchet`（または NN が ISMCTS 超えたら `ratchet-nn`）で `champion_best.csv` を単調改善。
-2. **NN軸**: `make distill`（床）→ `make improve`（ISMCTS 超え）を交互に。`eval-net EVAL_VS=ismcts` で確認。
-3. NN が **ISMCTS 五分かつ heuristic 超**を安定して満たしたら、探索操縦と提出を NN に寄せる。
-4. たまに `eval-deck` でデッキ、`eval-net` で NN を 40 試合以上で確定判断。
+1. **最初に一度** `make distill` で NN の床（≈ISMCTS）を作る（pvnet_distill_best.pt）。
+2. **以後の改善ループ**: `make improve`（NN を ISMCTS 超えに強化）↔ `make ratchet-nn`（その強い NN で
+   デッキ探索）を**交互**に。※ improve 後に distill へ戻さないこと（天井へ引き戻すため）。
+3. 判定: `make eval-net EVAL_VS=ismcts`（NN が ISMCTS 超えたか）、`make eval-deck`（デッキ）。いずれも 40 試合以上。
+4. NN が ISMCTS 超え＆heuristic 超を安定したら、提出操縦も NN に寄せる。`ratchet-nn` は improve_best を自動使用。
 
 ## 開発メモ
 
