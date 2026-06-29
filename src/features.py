@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from cards import CardMeta
+from cards import EFFECT_CATEGORY_COUNT, CardMeta
 from cg.api import CardType, Observation, PlayerState, Pokemon
 
 # --- 各ブロックの次元（定数として一元管理） --------------------------------
@@ -29,12 +29,34 @@ GLOBAL_FEAT = 1 + 1 + 4 + 1
 # 自分の手札資源（特性/トレーナー学習用・末尾に追加）。トレーナーは挙動が異なるため種別ごとに分ける:
 # ポケモン / グッズ / サポート / スタジアム / どうぐ / エネ / 特性持ちポケモン の 7 種。
 HAND_FEAT = 7
-# 観測ベクトル長。HAND_FEAT は**末尾**に足す（ウォームスタートで旧重みを先頭へ流用するため）。
-OBS_FEAT_LEN = GLOBAL_FEAT + 2 * PLAYER_FEAT + HAND_FEAT
+# アクティブのメタ（自分/相手の2体・末尾に追加）: is_special + にげるコスト + 特性効果カテゴリ。
+# 効果テキストを数値化した ability_effect ビットを net が読めるようにする（NN v2）。
+ACTIVE_META_FEAT = 2 + EFFECT_CATEGORY_COUNT
+# 観測ベクトル長。HAND_FEAT / ACTIVE_META は**末尾**に足す（ウォームスタートで旧重みを先頭へ流用）。
+OBS_FEAT_LEN = GLOBAL_FEAT + 2 * PLAYER_FEAT + HAND_FEAT + 2 * ACTIVE_META_FEAT
 # 行動の対象カードのメタ（末尾に追加）: 特性有無 / 威力効率 / HP
 ACTION_CARD_FEAT = 3
-# 行動特徴量長。ACTION_CARD_FEAT は**末尾**に足す（同上・ウォームスタート用）。
-ACTION_FEAT_LEN = N_OPTION_TYPES + 2 + ACTION_CARD_FEAT
+# 行動の効果・盤面相互作用（末尾に追加・NN v2）: ワザ効果カテゴリ(ビット) ＋
+# 相手アクティブHP / damage比 / KO可能フラグ / 弱点一致フラグ の 4。手の良し悪しを net が読める。
+ACTION_EFFECT_FEAT = EFFECT_CATEGORY_COUNT + 4
+# 行動特徴量長。ACTION_CARD_FEAT / ACTION_EFFECT_FEAT は**末尾**に足す（同上・ウォームスタート用）。
+ACTION_FEAT_LEN = N_OPTION_TYPES + 2 + ACTION_CARD_FEAT + ACTION_EFFECT_FEAT
+
+
+def _bits(mask: int, n: int) -> list[float]:
+    """ビットマスクを n 個の 0/1 float に展開する（効果カテゴリの符号化）."""
+    return [float((mask >> i) & 1) for i in range(n)]
+
+
+def _encode_active_meta(pk: Pokemon | None, meta: CardMeta) -> list[float]:
+    """アクティブ1体の効果メタ（is_special / にげるコスト / 特性効果カテゴリ）を符号化."""
+    if pk is None:
+        return [0.0] * ACTIVE_META_FEAT
+    cid = pk.id or 0
+    return [
+        float(meta.is_special.get(cid, False)),
+        min(meta.retreat_cost.get(cid, 0), 4) / 4,
+    ] + _bits(meta.ability_effect.get(cid, 0), EFFECT_CATEGORY_COUNT)
 
 
 def observation_feature_size() -> int:
@@ -149,6 +171,10 @@ def encode_observation(obs: Observation, meta: CardMeta) -> np.ndarray:
     ]
     feats = glob + _encode_player(st.players[yi]) + _encode_player(st.players[1 - yi])
     feats += _encode_hand(st.players[yi], meta)  # 末尾追加（ウォームスタート対応）
+    # アクティブの効果メタ（自分/相手）を末尾追加（NN v2・特性効果カテゴリを net に渡す）
+    my_act = st.players[yi].active[0] if st.players[yi].active else None
+    opp_act = st.players[1 - yi].active[0] if st.players[1 - yi].active else None
+    feats += _encode_active_meta(my_act, meta) + _encode_active_meta(opp_act, meta)
     return np.asarray(feats, dtype=np.float32)
 
 
@@ -163,6 +189,17 @@ def encode_actions(obs: Observation, meta: CardMeta) -> np.ndarray:
     if sel is None:
         return np.zeros((0, ACTION_FEAT_LEN), dtype=np.float32)
 
+    # 盤面相互作用（KO/弱点）用に自分・相手アクティブを取得（NN v2）
+    st = obs.current
+    my_act = opp_act = None
+    if st is not None:
+        yi = st.yourIndex
+        my_act = st.players[yi].active[0] if st.players[yi].active else None
+        opp_act = st.players[1 - yi].active[0] if st.players[1 - yi].active else None
+    my_type = meta.pokemon_type.get(my_act.id, -1) if my_act else -1
+    opp_hp = opp_act.hp if opp_act else 0
+    opp_weak = meta.weakness.get(opp_act.id, -1) if opp_act else -1
+
     rows = []
     for o in sel.option:
         row = [0.0] * N_OPTION_TYPES
@@ -176,5 +213,13 @@ def encode_actions(obs: Observation, meta: CardMeta) -> np.ndarray:
         row.append(1.0 if meta.has_ability.get(cid) else 0.0)
         row.append(min(meta.best_efficiency.get(cid, 0.0), 60) / 60)
         row.append(min(meta.hp.get(cid, 0), 400) / 400)
+        # ワザ効果カテゴリ（末尾追加・NN v2）
+        amask = meta.attack_effect.get(o.attackId, 0) if o.attackId is not None else 0
+        row += _bits(amask, EFFECT_CATEGORY_COUNT)
+        # 盤面相互作用: 相手HP / damage比 / KO可能 / 弱点一致
+        row.append(min(opp_hp, 400) / 400)
+        row.append(min(damage / opp_hp, 2.0) / 2.0 if opp_hp > 0 else 0.0)
+        row.append(1.0 if (opp_hp > 0 and damage >= opp_hp) else 0.0)
+        row.append(1.0 if (my_type >= 0 and opp_weak == my_type) else 0.0)
         rows.append(row)
     return np.asarray(rows, dtype=np.float32)
