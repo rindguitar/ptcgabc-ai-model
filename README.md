@@ -112,9 +112,10 @@ make improve              # 既定 iters40
   NN-MCTS は batch=1 推論＋cgエンジンで CPU 寄りなので、GPU より CPU 並列が効く。
 - `--resume` で継ぎ足し蓄積。`best` の基準勝率は `*.meta.json` に保存して run を跨いで引き継ぐので、
   **1h を細かく回しても best が単調に良くなる**（劣化モデルで best を上書きしない）。
-- **汎化対策（2026-06-29）**: ①蒸留の方策ターゲットを one-hot→**訪問分布(soft-π)** 化（policy が学びやすく
-  汎化に効く）、②**best 選抜を全学習デッキの平均勝率**で行う（1デッキだけ強い net を選ぶ偏りを解消）。
-  症状＝あるデッキで 0.57 でも別デッキで 0.45、への対処。
+- **汎化対策（2026-06-29）**: ①方策ターゲットを**温度 `DISTILL_TEMP` で one-hot↔soft 1本化**
+  （既定 0=one-hot＝浅い teacher で安全。`DISTILL_TEMP=0.5` 等で soft 解放だが soft は teacher を
+  深く=`DISTILL_TB`↑ した時のみ有効）、②**best 選抜を全学習デッキの平均勝率**で行う（1デッキだけ
+  強い net を選ぶ偏りを解消・1デッキ最低10試合）。症状＝あるデッキ 0.57 でも別デッキ 0.45 への対処。
 - 超えたかの確定判断: `make eval-net EVAL_VS=ismcts EVAL_ARGS="--net models/pvnet_improve_best.pt"`。
 
 ### 評価（たまに・確定判断）

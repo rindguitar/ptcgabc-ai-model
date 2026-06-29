@@ -91,6 +91,9 @@ DISTILL_OUT   ?= models/pvnet_distill.pt
 DISTILL_BEST  ?= models/pvnet_distill_best.pt
 DISTILL_TB    ?= 0.25
 DISTILL_ITERS ?= 60
+# 方策ターゲット温度。0=one-hot（既定・浅い teacher で安全）。>0 で訪問分布 soft-π を解放
+# （soft は teacher を深くした時=DISTILL_TB↑ でのみ有効。例: 鋭め soft なら 0.5）。
+DISTILL_TEMP  ?= 0
 # 教師対戦の並列収集数。各試合は独立＝コア数まで上げると「1回あたりの試行数」がほぼ線形に増える。
 # 既定は nproc-1（1コアを OS/GPU供給に空けて機械の無反応を防ぐ）。HT 環境では物理コア数推奨。
 DISTILL_WORKERS ?= $(shell n=$$(nproc 2>/dev/null || echo 2); echo $$((n>1?n-1:1)))
@@ -98,6 +101,7 @@ DISTILL_ARGS  ?=
 distill: ## ISMCTS蒸留（複数デッキ・強い教師・resume継ぎ足し・並列収集）。長さは DISTILL_ITERS で
 	$(RUN) python scripts/train_alphazero.py --teacher ismcts --resume \
 		--out $(DISTILL_OUT) --best-out $(DISTILL_BEST) --teacher-time-budget $(DISTILL_TB) \
+		--distill-temp $(DISTILL_TEMP) \
 		--iterations $(DISTILL_ITERS) --workers $(DISTILL_WORKERS) --eval-every 20 --eval-games 24 \
 		$(_DECKS_FLAG) $(DISTILL_ARGS)
 

@@ -45,7 +45,8 @@ def _eval_vs_heuristic(net, meta, decks, device, games_total, sims, dets, rng) -
     """
     evaluator = make_net_evaluator(net, meta, device)
     heuristic = make_heuristic_agent(meta)
-    per = max(4, games_total // len(decks))
+    # 1デッキあたり最低10試合は確保（4試合だと勝率が粗くノイズで best 選抜がブレるため）
+    per = max(10, games_total // len(decks))
     rates = []
     for deck in decks:
         nn_agent = make_nn_mcts_agent(
@@ -112,6 +113,13 @@ def main() -> None:
         type=int,
         default=1,
         help="蒸留サンプル収集の並列プロセス数（CPU コア数推奨・1回の試行数を増やす）",
+    )
+    p.add_argument(
+        "--distill-temp",
+        type=float,
+        default=0.0,
+        help="蒸留の方策ターゲット温度（0=one-hot 既定・安全。>0 で訪問分布 soft-π を解放。"
+        "soft は teacher を深くした時=TB↑/sims↑ でのみ有効）",
     )
     p.add_argument(
         "--buffer", type=int, default=20, help="リプレイバッファに保持する直近反復数"
@@ -206,6 +214,7 @@ def main() -> None:
                 rng,
                 time_budget=args.teacher_time_budget,
                 n_workers=args.workers,
+                temp=args.distill_temp,
             )
         elif args.workers and args.workers > 1:
             # 並列 self-play: 現ネットを一時保存し、各 worker が CPU で読み込んで収集する
