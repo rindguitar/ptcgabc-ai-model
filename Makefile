@@ -127,11 +127,14 @@ improve-1h: ## 約1時間の improve（前回に継ぎ足し・日中ちょく�
 
 # 確定判断用の offline 評価（試合数を増やして運の振れを抑える）。学習中の24は傾向把握用、
 # こちらは 40+ で「NN は heuristic/ISMCTS を超えたか」を判断する。例: make eval-net EVAL_GAMES=100
+# 既定ネットは「improve_best > distill_best > pvnet」の順で存在する最良を使う（古い pvnet.pt を
+# 黙って測る事故を防ぐ）。別ネットを測るなら make eval-net EVAL_NET=models/pvnet_distill_best.pt。
 EVAL_GAMES ?= 40
 EVAL_VS    ?= heuristic
+EVAL_NET   ?= $(firstword $(wildcard models/pvnet_improve_best.pt) $(wildcard models/pvnet_distill_best.pt) models/pvnet.pt)
 EVAL_ARGS  ?=
-eval-net: ## 訓練済みNNの確定判断用 評価（既定: vs heuristic 40試合・Docker）
-	$(RUN) python scripts/eval_net.py --vs $(EVAL_VS) --games $(EVAL_GAMES) $(EVAL_ARGS)
+eval-net: ## 訓練済みNNの確定判断用 評価（既定: 最良net・vs heuristic 40試合・Docker）
+	$(RUN) python scripts/eval_net.py --net $(EVAL_NET) --vs $(EVAL_VS) --games $(EVAL_GAMES) $(EVAL_ARGS)
 
 # 多様ガントレット生成（過学習対策）。生成後は league/eval-deck/gate が自動でこれを相手に使う
 # （models/gauntlet/ があれば data/*.csv より優先）。相手が多彩になる分、評価/探索は遅くなる。
