@@ -78,19 +78,37 @@ docker compose up jupyter   # http://localhost:${JUPYTER_PORT}
 make ratchet                  # 1サイクル: 探索→ゲート→改善だけ採用（既定 約1.5h・CPU）
 make ratchet RATCHET_ITERS=1  # 時短（約50分）
 make ratchet-overnight        # 一晩版（探索多め・約6h）
+make ratchet-nn               # NN操縦の高速版（探索=蒸留NN-MCTS・Docker／判定=ISMCTS）
 ```
 - `→ 更新`＝本物の前進、`据え置き`＝ノイズ劣化を阻止（正常）。
 - 探索(league)は速い5メタ・判定(gate)は多様 gauntlet で過学習を防ぐ。時間は `RATCHET_ITERS` で調整。
+- **`ratchet-nn`** は探索の操縦を蒸留 NN-MCTS にする（速度ではなく**質**の改善）。現行 ratchet の ISMCTS は
+  速度優先で弱い設定（tb=0.03）なので評価が雑。NN-MCTS は特性/効果を扱える強い評価者で、同等強度の
+  ISMCTS より時間効率が良い（≈1/4）。NN を `improve` で強くするほど探索の質が上がるので、
+  **NN が ISMCTS を安定して超えたら ratchet-nn を主軸**にする。判定(gate)は独立性のため ISMCTS のまま。
 
-### NN軸（GPU＋CPU・distill）
+### NN軸（GPU＋CPU・distill → improve）
 
-ISMCTS を教師に蒸留し、特性/効果を扱える操縦 NN を育てる（`--resume` で継ぎ足し蓄積）。
+操縦 NN を **2段**で育てる。蒸留(`distill`)で **ISMCTS 相当の床**を作り、improve(`improve`)で
+**self-play により床を超える**。蒸留だけでは教師(ISMCTS)が天井（≒五分）で止まるため、超えるには improve が要る。
 
 ```bash
+# 1段目: ISMCTS を教師に蒸留＝特性/効果を扱える安定した土台（pvnet_distill_best.pt）
 make distill-1h           # 約1h・前回に継ぎ足し（日中ちょくちょく）
 make distill-overnight    # 一晩・強い教師で多め
-# 作り直したい時: rm models/pvnet_distill.pt
+# 2段目: 蒸留ネットを種に self-play で ISMCTS 超えを狙う（pvnet_improve_best.pt）
+make improve-1h           # 約1h・前回に継ぎ足し
+make improve              # 既定 iters40
+# 作り直したい時: rm models/pvnet_distill.pt（または pvnet_improve.pt）
 ```
+- **なぜ improve で超えられるか**: MCTS(NN) は NN 単体より強い「方策改善演算子」。その**訪問回数分布
+  (soft-π)** を教師に学ぶと NN が自分を上回っていく（AlphaZero の核）。以前 self-play が崩壊したのは
+  **弱いネット始点**が原因で、≈ISMCTS の蒸留ネットを種にすれば回避できる（＋best保存＋低LR＋replay）。
+- 収集は **CPU 並列**（`DISTILL_WORKERS`・既定 `nproc-1`）＝**1回あたりの試行数がほぼコア数倍**。
+  NN-MCTS は batch=1 推論＋cgエンジンで CPU 寄りなので、GPU より CPU 並列が効く。
+- `--resume` で継ぎ足し蓄積。`best` の基準勝率は `*.meta.json` に保存して run を跨いで引き継ぐので、
+  **1h を細かく回しても best が単調に良くなる**（劣化モデルで best を上書きしない）。
+- 超えたかの確定判断: `make eval-net EVAL_VS=ismcts EVAL_ARGS="--net models/pvnet_improve_best.pt"`。
 
 ### 評価（たまに・確定判断）
 
@@ -121,9 +139,16 @@ make submission           # models/submission.tar.gz を作成 → Kaggle へは
 
 ### 注意
 
-- `ratchet`（CPU）と `distill` の ISMCTS 収集（CPU）は競合するので**片方ずつ**。
+- `ratchet`/`distill`/`improve` はいずれも CPU を多コア使うので**同時に1つだけ**回す。
 - gauntlet を入れると相手が増え評価/探索は遅くなる（その分、過学習しにくい）。
 - 長時間の学習・探索はユーザーが手動実行（`CLAUDE.md` 参照）。
+
+### 全体の回し方（まとめ）
+
+1. **デッキ軸**: `make ratchet`（または NN が ISMCTS 超えたら `ratchet-nn`）で `champion_best.csv` を単調改善。
+2. **NN軸**: `make distill`（床）→ `make improve`（ISMCTS 超え）を交互に。`eval-net EVAL_VS=ismcts` で確認。
+3. NN が **ISMCTS 五分かつ heuristic 超**を安定して満たしたら、探索操縦と提出を NN に寄せる。
+4. たまに `eval-deck` でデッキ、`eval-net` で NN を 40 試合以上で確定判断。
 
 ## 開発メモ
 

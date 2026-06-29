@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import random
 import sys
@@ -80,6 +81,12 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0, help="乱数シード")
     p.add_argument("--resume", action="store_true", help="既存ネットから続行")
     p.add_argument(
+        "--init-from",
+        default=None,
+        help="初回の初期重み（--out が無い時のみ使う）。例: 蒸留ネットを種に selfplay で"
+        "ISMCTS 超えを狙う improve 用 models/pvnet_distill_best.pt",
+    )
+    p.add_argument(
         "--teacher",
         choices=["selfplay", "ismcts"],
         default="selfplay",
@@ -90,6 +97,12 @@ def main() -> None:
         type=float,
         default=0.1,
         help="ismcts 教師の1手あたり秒（蒸留時のみ・大きいほど強い教師だが遅い）",
+    )
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="蒸留サンプル収集の並列プロセス数（CPU コア数推奨・1回の試行数を増やす）",
     )
     p.add_argument(
         "--buffer", type=int, default=20, help="リプレイバッファに保持する直近反復数"
@@ -118,16 +131,23 @@ def main() -> None:
             f"学習デッキ {len(decks)} 種（多様化で汎用 pilot 化）。評価は先頭デッキ固定"
         )
 
-    if args.resume and os.path.exists(args.out):
+    def _load_with_warmstart(path: str, label: str):
+        """厳密読み込み→失敗時はウォームスタート（特徴量拡張対応）でネットを得る."""
         try:
-            net = load_net(args.out, device)
-            print(f"レジューム: {args.out} を読み込み（device={device}）")
+            n = load_net(path, device)
+            print(f"{label}: {path} を読み込み（device={device}）")
         except RuntimeError:
-            # 特徴量を拡張した等で形が変わった場合は旧重みを引き継ぐ（末尾追加前提）
-            net = load_net_warmstart(args.out, device)
+            n = load_net_warmstart(path, device)
             print(
-                f"レジューム(ウォームスタート): {args.out} の旧重みを引き継ぎ（device={device}）"
+                f"{label}(ウォームスタート): {path} の旧重みを引き継ぎ（device={device}）"
             )
+        return n
+
+    if args.resume and os.path.exists(args.out):
+        net = _load_with_warmstart(args.out, "レジューム")
+    elif args.init_from and os.path.exists(args.init_from):
+        # 初回のみ種ネットから開始（例: 蒸留ネットを種に selfplay で ISMCTS 超えを狙う）
+        net = _load_with_warmstart(args.init_from, "初期重み（種）")
     else:
         net = PVNet()
         print(f"新規ネットで開始（device={device}）")
@@ -155,12 +175,44 @@ def main() -> None:
 
     # リプレイバッファ: 直近 args.buffer 反復分の自己対戦サンプルを保持し、まとめて学習する
     buffer: deque[list] = deque(maxlen=args.buffer)
-    best_wr = -1.0  # eval 最良勝率。学習が不安定でも最良モデルを別ファイルに残す
+    # eval 最良勝率。学習が不安定でも最良モデルを別ファイルに残す。
+    # 1h を細かく回しても積みあがるよう、best の基準値を sidecar に永続化し resume で引き継ぐ
+    # （引き継がないと再開のたびに best_wr=-1 にリセットされ、劣化モデルで best を上書きしてしまう）。
+    best_meta_path = args.best_out + ".meta.json"
+    best_wr = -1.0
+    if args.resume and os.path.exists(best_meta_path):
+        try:
+            with open(best_meta_path) as f:
+                best_wr = float(json.load(f).get("best_wr", -1.0))
+            print(f"best 基準を引き継ぎ: {best_wr:.3f}（{best_meta_path}）")
+        except (ValueError, OSError):
+            best_wr = -1.0
     for it in range(args.iterations):
         if args.teacher == "ismcts":
             # 蒸留: ISMCTS 教師の選択を真似る（弱い net からの自己対戦崩壊を回避し強い土台を作る）
             new_samples = generate_ismcts_samples(
-                meta, decks, args.games, rng, time_budget=args.teacher_time_budget
+                meta,
+                decks,
+                args.games,
+                rng,
+                time_budget=args.teacher_time_budget,
+                n_workers=args.workers,
+            )
+        elif args.workers and args.workers > 1:
+            # 並列 self-play: 現ネットを一時保存し、各 worker が CPU で読み込んで収集する
+            # （NN-MCTS は batch=1 推論＋cgエンジン＝CPU寄り。CPU 並列で試行数をコア数倍に）。
+            snap = args.out + ".snap"
+            save_net(net, snap)
+            from nn_collect import generate_samples_parallel
+
+            new_samples = generate_samples_parallel(
+                snap,
+                decks,
+                args.games,
+                rng,
+                args.workers,
+                n_simulations=args.sims,
+                n_determinizations=args.dets,
             )
         else:
             evaluator = make_net_evaluator(net, meta, device)
@@ -206,6 +258,9 @@ def main() -> None:
             if wr > best_wr:
                 best_wr = wr
                 save_net(net, args.best_out)
+                # 基準値を永続化（resume で引き継ぎ＝run を跨いで best が単調に上がる）
+                with open(best_meta_path, "w") as f:
+                    json.dump({"best_wr": best_wr}, f)
                 print(f"    -> best 更新（{wr:.3f}）→ {args.best_out} に保存")
         # 進捗を CSV に追記（各反復ごとに flush＝途中で落ちても残る）
         log_writer.writerow(

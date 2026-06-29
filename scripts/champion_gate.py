@@ -44,7 +44,21 @@ def main() -> None:
     p.add_argument("--best", default="models/champion_best.csv", help="現状ベスト")
     p.add_argument("--meta", nargs="+", default=None, help="相手メタ群")
     p.add_argument("--games", type=int, default=20, help="相手1体あたりの試合数")
+    p.add_argument(
+        "--pilot",
+        choices=["ismcts", "nn", "heuristic"],
+        default="ismcts",
+        help="判定操縦（ismcts=独立判定で頑健 / nn=蒸留NN-MCTS高速・要torch）",
+    )
     p.add_argument("--time-budget", type=float, default=0.1, help="ismcts の1手秒")
+    p.add_argument(
+        "--net",
+        default="models/pvnet_distill_best.pt",
+        help="pilot=nn のとき使う訓練済みネット",
+    )
+    p.add_argument(
+        "--nn-sims", type=int, default=64, help="pilot=nn の1手あたり MCTS 反復数"
+    )
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
         "--margin",
@@ -77,8 +91,10 @@ def main() -> None:
         opps,
         random.Random(args.seed),
         args.games,
-        "ismcts",
+        args.pilot,
         args.time_budget,
+        net=args.net,
+        nn_sims=args.nn_sims,
     )
     best_res = eval_deck_vs_meta(
         best_deck,
@@ -86,8 +102,10 @@ def main() -> None:
         opps,
         random.Random(args.seed),
         args.games,
-        "ismcts",
+        args.pilot,
         args.time_budget,
+        net=args.net,
+        nn_sims=args.nn_sims,
     )
     print(f"new : 最悪={new_res['worst']:.3f} 平均={new_res['mean']:.3f}")
     print(f"best: 最悪={best_res['worst']:.3f} 平均={best_res['mean']:.3f}")
