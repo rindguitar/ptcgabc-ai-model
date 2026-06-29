@@ -91,6 +91,12 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0, help="乱数シード")
     p.add_argument("--resume", action="store_true", help="既存ネットから続行")
     p.add_argument(
+        "--resume-from-best",
+        action="store_true",
+        help="安全弁: 作業 net の直近 eval が best を明確に下回っていたら best から再開する"
+        "（自己対戦=improve の drift 対策。悪い癖がついたら良かった頃へ戻す）",
+    )
+    p.add_argument(
         "--init-from",
         default=None,
         help="初回の初期重み（--out が無い時のみ使う）。例: 蒸留ネットを種に selfplay で"
@@ -160,8 +166,41 @@ def main() -> None:
             )
         return n
 
+    def _read_meta(path: str, key: str):
+        """sidecar JSON から数値を読む（無ければ None）."""
+        try:
+            with open(path) as f:
+                return float(json.load(f).get(key))
+        except (ValueError, OSError, TypeError):
+            return None
+
+    # best 基準勝率を resume で引き継ぐ（劣化モデルで best 上書き防止＝run 跨ぎで単調改善）
+    best_meta_path = args.best_out + ".meta.json"
+    work_meta_path = args.out + ".meta.json"
+    best_wr = -1.0
+    if args.resume:
+        bw = _read_meta(best_meta_path, "best_wr")
+        if bw is not None:
+            best_wr = bw
+            print(f"best 基準を引き継ぎ: {best_wr:.3f}（{best_meta_path}）")
+
+    # 再開元の決定。安全弁(--resume-from-best): 作業 net の直近 eval が best を明確に下回るなら
+    # best から再開する（自己対戦=improve の drift で悪い癖がついたら良かった頃へ戻す）。
+    _RESUME_BEST_MARGIN = 0.02
     if args.resume and os.path.exists(args.out):
-        net = _load_with_warmstart(args.out, "レジューム")
+        resume_path = args.out
+        last_wr = _read_meta(work_meta_path, "last_wr")
+        if (
+            args.resume_from_best
+            and os.path.exists(args.best_out)
+            and last_wr is not None
+            and last_wr < best_wr - _RESUME_BEST_MARGIN
+        ):
+            resume_path = args.best_out
+            print(
+                f"安全弁: 作業 net 劣化（直近 {last_wr:.3f} < best {best_wr:.3f}）→ best から再開"
+            )
+        net = _load_with_warmstart(resume_path, "レジューム")
     elif args.init_from and os.path.exists(args.init_from):
         # 初回のみ種ネットから開始（例: 蒸留ネットを種に selfplay で ISMCTS 超えを狙う）
         net = _load_with_warmstart(args.init_from, "初期重み（種）")
@@ -192,18 +231,6 @@ def main() -> None:
 
     # リプレイバッファ: 直近 args.buffer 反復分の自己対戦サンプルを保持し、まとめて学習する
     buffer: deque[list] = deque(maxlen=args.buffer)
-    # eval 最良勝率。学習が不安定でも最良モデルを別ファイルに残す。
-    # 1h を細かく回しても積みあがるよう、best の基準値を sidecar に永続化し resume で引き継ぐ
-    # （引き継がないと再開のたびに best_wr=-1 にリセットされ、劣化モデルで best を上書きしてしまう）。
-    best_meta_path = args.best_out + ".meta.json"
-    best_wr = -1.0
-    if args.resume and os.path.exists(best_meta_path):
-        try:
-            with open(best_meta_path) as f:
-                best_wr = float(json.load(f).get("best_wr", -1.0))
-            print(f"best 基準を引き継ぎ: {best_wr:.3f}（{best_meta_path}）")
-        except (ValueError, OSError):
-            best_wr = -1.0
     for it in range(args.iterations):
         if args.teacher == "ismcts":
             # 蒸留: ISMCTS 教師の選択を真似る（弱い net からの自己対戦崩壊を回避し強い土台を作る）
@@ -273,6 +300,9 @@ def main() -> None:
             print(
                 f"  [eval] iter {it}: NN-MCTS vs heuristic 勝率(全{len(decks)}デッキ平均) = {wr:.3f}"
             )
+            # 作業 net の直近 eval を sidecar に記録（次回の安全弁判定 --resume-from-best 用）
+            with open(work_meta_path, "w") as f:
+                json.dump({"last_wr": wr}, f)
             # 最良を別ファイルに退避（崩壊しても最良を失わない）。eval はノイズありなので
             # 確定判断は別途 make eval-net（40+試合）で行う前提。
             if wr > best_wr:
