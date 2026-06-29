@@ -150,10 +150,14 @@ make submission           # models/submission.tar.gz を作成 → Kaggle へは
 ### 全体の回し方（まとめ）
 
 1. **最初に一度** `make distill` で NN の床（≈ISMCTS）を作る（pvnet_distill_best.pt）。
-2. **以後の改善ループ**: `make improve`（NN を ISMCTS 超えに強化）↔ `make ratchet-nn`（その強い NN で
-   デッキ探索）を**交互**に。※ improve 後に distill へ戻さないこと（天井へ引き戻すため）。
+2. **改善ループ（交互）**: `make improve`（NN 強化）↔ デッキ探索。デッキ探索の操縦は NN の強さで使い分ける:
+   - **NN が ISMCTS 超え未確認のうち**は `make ratchet`（ISMCTS 探索＝無印）。
+   - **`eval-net EVAL_VS=ismcts` で NN > ISMCTS を確認したら** `make ratchet-nn`（NN 探索）へ切替。
+     `ratchet-nn` は強い NN（improve_best）を自動使用。
+   - ※ improve 後に distill へ戻さないこと（教師=ISMCTS の天井へ引き戻すため）。
 3. 判定: `make eval-net EVAL_VS=ismcts`（NN が ISMCTS 超えたか）、`make eval-deck`（デッキ）。いずれも 40 試合以上。
-4. NN が ISMCTS 超え＆heuristic 超を安定したら、提出操縦も NN に寄せる。`ratchet-nn` は improve_best を自動使用。
+4. どちらの ratchet も**判定(gate)は ISMCTS**（独立判定）なので、操縦に関わらず `champion_best` は劣化しない。
+5. NN が ISMCTS 超え＆heuristic 超を安定したら、提出操縦も NN に寄せる。
 
 ## 開発メモ
 
