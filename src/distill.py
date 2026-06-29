@@ -16,13 +16,17 @@ from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
+from agents import make_heuristic_agent
 from cards import CardMeta
 from cg.api import to_observation_class
 from cg.game import battle_finish, battle_select, battle_start
 from features import encode_actions, encode_observation
-from ismcts import make_ismcts_agent
+from ismcts import ismcts_aggregate
 from nn_mcts import _MCTS_SELECT_TYPES
 from selfplay import Sample, as_deck_list
+
+# この訪問数未満は探索信号が薄いので soft-π を記録せず heuristic で進める（make_ismcts_agent と同値）
+_MIN_VISITS = 15
 
 
 def play_ismcts_distill_game(
@@ -32,8 +36,13 @@ def play_ismcts_distill_game(
     time_budget: float = 0.1,
     max_steps: int = 100_000,
 ) -> list[Sample]:
-    """ISMCTS で1試合（両席ミラー）し、ISMCTS の選択を教師に蒸留サンプル列を返す."""
-    ismcts = make_ismcts_agent(meta, deck, deck, time_budget=time_budget)
+    """ISMCTS で1試合（両席ミラー）し、ISMCTS の**訪問分布(soft-π)**を教師に蒸留サンプル列を返す.
+
+    one-hot（選んだ手だけ1.0）は信号が痩せて policy が学びにくい。代わりに各 MAIN/ATTACK 決定で
+    ISMCTS の訪問回数分布を方策ターゲット π にする（teacher が迷う局面の情報も渡る＝汎化に効く）。
+    実行手は最多訪問手（標準的な MCTS の着手）。訪問が薄い局面は記録せず heuristic で進める。
+    """
+    heuristic = make_heuristic_agent(meta)
     obs_dict, _ = battle_start(deck, deck)
     pending: list[tuple[np.ndarray, np.ndarray, np.ndarray, int]] = []
     result: int | None = None
@@ -48,23 +57,28 @@ def play_ismcts_distill_game(
             if sel is None:
                 break
 
-            action = ismcts(obs, rng)  # ISMCTS（教師）の選択
-            # 単一選択の MAIN/ATTACK 等のみ記録（one-hot 方策ターゲットが曖昧にならないよう）
-            if (
-                sel.type in _MCTS_SELECT_TYPES
-                and len(sel.option) > 1
-                and len(action) == 1
-            ):
-                pi = np.zeros(len(sel.option), dtype=np.float32)
-                pi[action[0]] = 1.0
-                pending.append(
-                    (
-                        encode_observation(obs, meta),
-                        encode_actions(obs, meta),
-                        pi,
-                        obs.current.yourIndex,
-                    )
+            if sel.type in _MCTS_SELECT_TYPES and len(sel.option) > 1:
+                agg = ismcts_aggregate(
+                    meta, obs, deck, deck, rng, time_budget=time_budget
                 )
+                n = len(sel.option)
+                visits = [agg.get((i,), (0.0, 0.0))[0] for i in range(n)]
+                total = sum(visits)
+                if total >= _MIN_VISITS:
+                    pi = np.asarray([v / total for v in visits], dtype=np.float32)
+                    pending.append(
+                        (
+                            encode_observation(obs, meta),
+                            encode_actions(obs, meta),
+                            pi,
+                            obs.current.yourIndex,
+                        )
+                    )
+                    action = [int(max(range(n), key=lambda i: visits[i]))]
+                else:
+                    action = heuristic(obs, rng)
+            else:
+                action = heuristic(obs, rng)
             obs_dict = battle_select(action)
     finally:
         battle_finish()

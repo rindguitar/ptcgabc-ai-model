@@ -37,19 +37,28 @@ from selfplay import generate_samples  # noqa: E402
 from train import load_net, load_net_warmstart, save_net, train  # noqa: E402
 
 
-def _eval_vs_heuristic(net, meta, deck, device, games, sims, dets, rng) -> float:
-    """現ネット操縦(NN-MCTS) vs heuristic の勝率（進捗確認用）."""
+def _eval_vs_heuristic(net, meta, decks, device, games_total, sims, dets, rng) -> float:
+    """現ネット操縦(NN-MCTS) vs heuristic を**複数デッキ平均**で評価する（汎化を測る）.
+
+    best 選抜が1デッキに偏ると、そのデッキだけ強い net を選び他デッキで弱くなる（実測の症状）。
+    games_total をデッキ数で配分して総試合数を概ね一定に保ち、デッキ横断の平均勝率を返す。
+    """
     evaluator = make_net_evaluator(net, meta, device)
-    nn_agent = make_nn_mcts_agent(
-        meta,
-        deck,
-        deck,
-        evaluator=evaluator,
-        n_simulations=sims,
-        n_determinizations=dets,
-    )
-    res = evaluate(nn_agent, make_heuristic_agent(meta), deck, rng, games)
-    return res["win_rate_a"]
+    heuristic = make_heuristic_agent(meta)
+    per = max(4, games_total // len(decks))
+    rates = []
+    for deck in decks:
+        nn_agent = make_nn_mcts_agent(
+            meta,
+            deck,
+            deck,
+            evaluator=evaluator,
+            n_simulations=sims,
+            n_determinizations=dets,
+        )
+        res = evaluate(nn_agent, heuristic, deck, rng, per)
+        rates.append(res["win_rate_a"])
+    return sum(rates) / len(rates)
 
 
 def main() -> None:
@@ -124,11 +133,11 @@ def main() -> None:
     decks = [
         load_deck(p) for p in args.deck
     ]  # 学習用デッキ群（複数なら毎試合ランダム選択）
-    eval_deck = decks[0]  # 評価は先頭デッキに固定（実行間で比較可能に）
     rng = random.Random(args.seed)
     if len(decks) > 1:
         print(
-            f"学習デッキ {len(decks)} 種（多様化で汎用 pilot 化）。評価は先頭デッキ固定"
+            f"学習デッキ {len(decks)} 種（多様化で汎用 pilot 化）。"
+            f"eval/best 選抜は全{len(decks)}デッキ平均（汎化を測る）"
         )
 
     def _load_with_warmstart(path: str, label: str):
@@ -249,10 +258,12 @@ def main() -> None:
         eval_wr = ""
         if args.eval_every and (it + 1) % args.eval_every == 0:
             wr = _eval_vs_heuristic(
-                net, meta, eval_deck, device, args.eval_games, args.sims, args.dets, rng
+                net, meta, decks, device, args.eval_games, args.sims, args.dets, rng
             )
             eval_wr = f"{wr:.3f}"
-            print(f"  [eval] iter {it}: NN-MCTS vs heuristic 勝率 = {wr:.3f}")
+            print(
+                f"  [eval] iter {it}: NN-MCTS vs heuristic 勝率(全{len(decks)}デッキ平均) = {wr:.3f}"
+            )
             # 最良を別ファイルに退避（崩壊しても最良を失わない）。eval はノイズありなので
             # 確定判断は別途 make eval-net（40+試合）で行う前提。
             if wr > best_wr:
