@@ -204,6 +204,56 @@ def _move_budget(
     return min(budget, max(0.0, remaining - reserve))
 
 
+def ismcts_aggregate(
+    meta: CardMeta,
+    obs: Observation,
+    my_deck: list[int],
+    opp_deck: list[int],
+    rng: random.Random,
+    time_budget: float = 0.1,
+    *,
+    iters_per_det: int = 40,
+    c: float = 1.4,
+    max_rollout_depth: int = 300,
+    rollout_policy: Agent | None = None,
+    opp_pool: list[list[int]] | None = None,
+) -> dict[tuple[int, ...], list[float]]:
+    """1局面を ISMCTS 探索し、行動別の集計 {action_key: [visits, value_sum]} を返す.
+
+    make_ismcts_agent の探索コアと同じだが、**最終選択前の生の訪問統計**を返す。蒸留の
+    soft-π（訪問回数分布）ターゲットを作るのに使う（エージェント本体は触らず別関数で提供）。
+    """
+    policy = rollout_policy or make_heuristic_agent(meta)
+    agg: dict[tuple[int, ...], list[float]] = defaultdict(lambda: [0.0, 0.0])
+    deadline = perf_counter() + time_budget
+    while perf_counter() < deadline:
+        opp = pick_opponent_deck(obs, opp_pool, opp_deck, rng)
+        det = determinize(obs, my_deck, opp, rng)
+        try:
+            root_state = search_begin(
+                obs,
+                det["your_deck"],
+                det["your_prize"],
+                det["opponent_deck"],
+                det["opponent_prize"],
+                det["opponent_hand"],
+                det["opponent_active"],
+                False,
+            )
+        except (ValueError, IndexError):
+            continue
+        root = _Node(root_state, obs.current.yourIndex, rng, policy)
+        for _ in range(iters_per_det):
+            if perf_counter() >= deadline:
+                break
+            _simulate(root, c, policy, rng, max_rollout_depth)
+        for key, child in root.children.items():
+            agg[key][0] += child.n
+            agg[key][1] += child.w
+        search_end()
+    return dict(agg)
+
+
 def make_ismcts_agent(
     meta: CardMeta,
     my_deck: list[int],

@@ -21,8 +21,8 @@ RUN     := $(COMPOSE) run --rm dev
 
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
-        ratchet ratchet-overnight gauntlet eval-deck champion-gate \
-        train distill distill-1h distill-overnight eval-net \
+        ratchet ratchet-overnight ratchet-nn gauntlet eval-deck champion-gate \
+        train distill distill-1h distill-overnight improve improve-1h eval-net \
         submission build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキ探索（ratchet が内部で使う）の既定パラメータ --------------------
@@ -36,6 +36,10 @@ LEAGUE_ARGS    ?=
 # 既存チャンピオンを固定の試験官(seed)に自動取り込み（探索の起点・無ければ相手プールのみ）。
 LEAGUE_EXTRA   ?= $(wildcard models/champion_deck.csv)
 _EXTRA_FLAG     = $(if $(LEAGUE_EXTRA),--extra-seeds $(LEAGUE_EXTRA),)
+# NN 操縦の既定ネット。improve で ISMCTS を超えた net を優先し、無ければ蒸留(床)にフォールバック
+# （ratchet-nn は「ISMCTS を超えた強い NN」で探索するのが目的なので improve_best を使う）。
+NN_NET  ?= $(firstword $(wildcard models/pvnet_improve_best.pt) models/pvnet_distill_best.pt)
+NN_SIMS ?= 64
 
 # --- ヘルプ -----------------------------------------------------------------
 help: ## このヘルプを表示
@@ -87,11 +91,18 @@ DISTILL_OUT   ?= models/pvnet_distill.pt
 DISTILL_BEST  ?= models/pvnet_distill_best.pt
 DISTILL_TB    ?= 0.25
 DISTILL_ITERS ?= 60
+# 方策ターゲット温度。0=one-hot（既定・浅い teacher で安全）。>0 で訪問分布 soft-π を解放
+# （soft は teacher を深くした時=DISTILL_TB↑ でのみ有効。例: 鋭め soft なら 0.5）。
+DISTILL_TEMP  ?= 0
+# 教師対戦の並列収集数。各試合は独立＝コア数まで上げると「1回あたりの試行数」がほぼ線形に増える。
+# 既定は nproc-1（1コアを OS/GPU供給に空けて機械の無反応を防ぐ）。HT 環境では物理コア数推奨。
+DISTILL_WORKERS ?= $(shell n=$$(nproc 2>/dev/null || echo 2); echo $$((n>1?n-1:1)))
 DISTILL_ARGS  ?=
-distill: ## ISMCTS蒸留（複数デッキ・強い教師・resume継ぎ足し）。長さは DISTILL_ITERS で
+distill: ## ISMCTS蒸留（複数デッキ・強い教師・resume継ぎ足し・並列収集）。長さは DISTILL_ITERS で
 	$(RUN) python scripts/train_alphazero.py --teacher ismcts --resume \
 		--out $(DISTILL_OUT) --best-out $(DISTILL_BEST) --teacher-time-budget $(DISTILL_TB) \
-		--iterations $(DISTILL_ITERS) --eval-every 20 --eval-games 24 \
+		--distill-temp $(DISTILL_TEMP) \
+		--iterations $(DISTILL_ITERS) --workers $(DISTILL_WORKERS) --eval-every 20 --eval-games 24 \
 		$(_DECKS_FLAG) $(DISTILL_ARGS)
 
 distill-1h: ## 約1時間の蒸留（前回に継ぎ足し・日中ちょくちょく用）
@@ -100,13 +111,34 @@ distill-1h: ## 約1時間の蒸留（前回に継ぎ足し・日中ちょくち�
 distill-overnight: ## 一晩の蒸留（継ぎ足し・強い教師0.3で多め・約7h目安）
 	$(MAKE) distill DISTILL_ITERS=350 DISTILL_TB=0.3
 
+# 蒸留は教師(ISMCTS)が天井＝五分まで。improve は **蒸留ネットを種に self-play** で天井を破る。
+# MCTS(NN) は NN 単体より強い方策改善演算子なので、その訪問分布(soft-π)を学べば ISMCTS を
+# 超えうる（以前の崩壊は弱いネット始点が原因。≈ISMCTS の種＋best保存＋低LR＋replayで安定）。
+# 収集は CPU 並列（NN-MCTS は batch=1 推論＝GPUより CPU 向き）。判定は make eval-net EVAL_VS=ismcts。
+IMPROVE_OUT   ?= models/pvnet_improve.pt
+IMPROVE_BEST  ?= models/pvnet_improve_best.pt
+IMPROVE_SEED  ?= models/pvnet_distill_best.pt
+IMPROVE_ITERS ?= 40
+IMPROVE_ARGS  ?=
+improve: ## self-playでISMCTS超えを狙う（蒸留ネットを種・CPU並列・best保存・resume蓄積・drift安全弁）
+	$(RUN) python scripts/train_alphazero.py --teacher selfplay --resume --resume-from-best \
+		--init-from $(IMPROVE_SEED) --out $(IMPROVE_OUT) --best-out $(IMPROVE_BEST) \
+		--iterations $(IMPROVE_ITERS) --workers $(DISTILL_WORKERS) \
+		--eval-every 10 --eval-games 24 $(_DECKS_FLAG) $(IMPROVE_ARGS)
+
+improve-1h: ## 約1時間の improve（前回に継ぎ足し・日中ちょくちょく用）
+	$(MAKE) improve IMPROVE_ITERS=30
+
 # 確定判断用の offline 評価（試合数を増やして運の振れを抑える）。学習中の24は傾向把握用、
 # こちらは 40+ で「NN は heuristic/ISMCTS を超えたか」を判断する。例: make eval-net EVAL_GAMES=100
+# 既定ネットは「improve_best > distill_best > pvnet」の順で存在する最良を使う（古い pvnet.pt を
+# 黙って測る事故を防ぐ）。別ネットを測るなら make eval-net EVAL_NET=models/pvnet_distill_best.pt。
 EVAL_GAMES ?= 40
 EVAL_VS    ?= heuristic
+EVAL_NET   ?= $(firstword $(wildcard models/pvnet_improve_best.pt) $(wildcard models/pvnet_distill_best.pt) models/pvnet.pt)
 EVAL_ARGS  ?=
-eval-net: ## 訓練済みNNの確定判断用 評価（既定: vs heuristic 40試合・Docker）
-	$(RUN) python scripts/eval_net.py --vs $(EVAL_VS) --games $(EVAL_GAMES) $(EVAL_ARGS)
+eval-net: ## 訓練済みNNの確定判断用 評価（既定: 最良net・vs heuristic 40試合・Docker）
+	$(RUN) python scripts/eval_net.py --net $(EVAL_NET) --vs $(EVAL_VS) --games $(EVAL_GAMES) $(EVAL_ARGS)
 
 # 多様ガントレット生成（過学習対策）。生成後は league/eval-deck/gate が自動でこれを相手に使う
 # （models/gauntlet/ があれば data/*.csv より優先）。相手が多彩になる分、評価/探索は遅くなる。
@@ -147,6 +179,20 @@ ratchet: ## デッキ探索→ゲート1サイクル（best起点／時短: RATC
 
 ratchet-overnight: ## 一晩版 ratchet（探索を多め iters20・約6h・翌朝 eval-deck で確認）
 	$(MAKE) ratchet RATCHET_ITERS=20
+
+# NN 操縦版の ratchet（Docker/GPU）。探索(league)を蒸留 NN-MCTS で回す＝ISMCTS の ~1/4 時間で
+# 同等強度＝同じ時間で「より多く探索」できる。判定(gate)は独立性のため ISMCTS のまま（ホスト/CPU）。
+# distill で NN を強くしてから回すほど探索の質が上がる（distill↔ratchet-nn を交互に）。
+ratchet-nn: ## NN操縦の高速 ratchet（探索=蒸留NN-MCTS・Docker／判定=ISMCTS・ホスト）
+	@if [ -f models/champion_best.csv ]; then \
+		cp models/champion_best.csv models/champion_deck.csv; \
+		echo "起点を champion_best に設定（best から探索）"; \
+	else echo "best 未作成: 現 champion_deck から開始（gate が初回 best を作成）"; fi
+	$(RUN) python src/league.py --cap 12 --iters $(RATCHET_ITERS) --games 4 --pop 6 --gens 3 \
+		--plateau 99 --seed $(LEAGUE_SEED) --pilot nn --net $(NN_NET) --nn-sims $(NN_SIMS) \
+		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
+	$(PY) scripts/champion_gate.py --games 20 --time-budget 0.05 $(GATE_ARGS)
+	@echo "ratchet-nn 完了。最良は models/champion_best.csv（提出はこれを使う）"
 
 # === 提出 ==================================================================
 submission: ## 提出パッケージ models/submission.tar.gz を作成（champion＋ISMCTS＋cg＋deck）

@@ -1,6 +1,6 @@
 """訓練済み NN 操縦の強さ評価（Phase 3・torch・Docker）.
 
-同一デッキで NN-MCTS(pvnet) vs 相手（heuristic / ismcts）を対戦させ、NN 操縦の勝率を測る。
+同一デッキで NN-MCTS(--net で指定したネット) vs 相手（heuristic / ismcts）を対戦させ、勝率を測る。
 これで「訓練で操縦が強くなったか」を確認する。席入替で先手有利を打ち消す。
 
 実行（Docker）:
@@ -69,8 +69,10 @@ def main() -> None:
 
     rng = random.Random(args.seed)
     res = evaluate(nn_agent, opponent, deck, rng, args.games)
+    # どの .pt を測ったか曖昧にしないよう実際のネット名を表示する
+    net_name = os.path.basename(args.net)
     print(
-        f"NN-MCTS(pvnet) vs {args.vs}（同一デッキ・{args.games}試合・席入替, device={device}）: "
+        f"NN-MCTS({net_name}) vs {args.vs}（同一デッキ・{args.games}試合・席入替, device={device}）: "
         f"NN 勝率 = {res['win_rate_a']:.3f}  ({res['wins_a']}-{res['wins_b']}, draws {res['draws']})"
     )
     print("  >0.5 なら NN 操縦が相手より強い（訓練が効いている）")
