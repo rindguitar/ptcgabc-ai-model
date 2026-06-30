@@ -52,8 +52,24 @@ priors を NN（policy head）が出すので、有望な手に最初から探�
 勝率予測 [0,1]。両方持つネットを **PVNet**（Policy-Value Net）と呼ぶ。[net.py](../../src/net.py)。
 
 ### features（特徴量） / encoding
-局面や合法手を**数値ベクトルに変換**したもの。ネットの入力。本プロジェクトは効果文（Pokémon Element）は
-読まず、HP・タイプ・特性の有無などの**数値メタ**だけを使う。[features.py](../../src/features.py)。
+局面や合法手を**数値ベクトルに変換**したもの。ネットの入力。HP・タイプ・KO 可能・弱点一致などの
+**数値メタ＋効果カテゴリ**（下記）を使う。[features.py](../../src/features.py)。
+※ 効果文そのものは**読んで数値化に使う**が、生テキストは保持・公開しない（規約: 使用は可・公開は不可）。
+
+### 効果カテゴリ（effect categories）
+カードの効果文を**汎用ゲーム機構のキーワード**で分類した数値フラグ（draw / search / heal / energy_accel /
+damage_counter / status / switch / prevent など）。効果文は読めるが意味を1つずつ手で読むのは大変なので、
+カテゴリのビットマスクにして net に渡す。[cards.py](../../src/cards.py) `_effect_bitmask`。
+
+### cardId 埋め込み（embedding）
+カードの ID（整数）を**学習可能なベクトル**に変換する仕組み（`nn.Embedding`）。数値メタでは表せない
+「そのカード固有の強さ・癖」を学習で捉える。特徴ベクトル末尾に整数 cardId を載せ、net が分離して埋め込む。
+[net.py](../../src/net.py)。
+
+### 接地 floor（grounded floor / 安全弁）
+NN-MCTS の手と heuristic の手が違うとき、両者を**実際に打って heuristic ロールアウトで比較**し、良い方を
+採る仕組み（net の評価に頼らない＝接地）。**net が間違っても pilot が heuristic を下回らない**保証。
+[ismcts.py](../../src/ismcts.py) `evaluate_actions_by_rollout` / [nn_mcts.py](../../src/nn_mcts.py) `floor_rollouts`。
 
 ### 蒸留（distillation）/ behavioral cloning（行動クローン）
 **強い教師（ここでは ISMCTS）の選択を真似る**ようにネットを教師あり学習すること。自己対戦が弱いネットから

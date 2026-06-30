@@ -83,10 +83,50 @@
   速度優先で弱い設定（探索が雑）なので、NN-MCTS のほうが per-move では遅くても**評価が賢い**。
 - 「NN は ISMCTS の約1/4時間」は**同じ強さの ISMCTS と比べた話**。弱い設定の ISMCTS とは前提が違う。
 
+## 13. 効果文を「読んで数値カテゴリ化」する（NN v2・規約上OK）
+- **背景**: 当初「効果文（Pokémon Element）は読まない」と過剰に自主規制し、NN が手の効果を理解できず
+  policy が手を順位付けできなかった（champion で 0.15 など）。
+- **規約の再確認**: 効果文を**モデルの学習/推論に使うのは許諾の範囲内**（ルール L73）。禁止は
+  **公開・再配布**（L81/L190）と競技外利用のみ。派生した数値や重み・embedding は参加者の生成物で
+  Pokémon Elements ではない（L306）。→ **読んでよい。出さない（commit/公開しない）だけ。**
+- **判断**: エンジン JSON の attack/skill `text` を**汎用ゲーム機構のキーワード**で効果カテゴリ
+  （draw/heal/KO 等10種）のビットフラグに変換（`cards._effect_bitmask`）。生テキスト・カード名は保持/出力しない。
+- **効果（実測）**: champion vs heuristic 0.15→0.4台・vs ismcts 0.15→0.45 と**カタストロフィ解消**。
+
+## 14. cardId 埋め込み＋容量↑（NN v2・表現力を上げる）
+- **背景**: 数値特徴だけでは「カード固有性」を粗くしか表せず、小さいネット（hidden256・2層）は
+  ISMCTS を真似きれず**教師より下**（40試合で heuristic/ISMCTS 未満）で頭打ち＝**容量・表現の限界**。
+- **判断**: 特徴ベクトル**末尾に整数 cardId** を載せ（features の `N_STATE_ID`/`N_ACTION_ID`）、net が
+  分離して **Embedding**（`net.PVNet`・card_emb16・共有・pad0）。容量も hidden512・trunk3層に拡張。
+  Sample/encode の型は不変（id は float 配列の末尾に同居）＝侵襲最小・warm-start 契約は廃止（再学習前提）。
+- **狙い**: 学習でカード固有の有用性を捉え、ISMCTS を**真似きる→超える**表現力（prize-zone の核）。
+
+## 15. 接地 floor（net 非依存で pilot ≥ heuristic を保証）
+- **背景**: NN-MCTS は MAIN/ATTACK 以外を heuristic にフォールバック。半端な net は攻撃選択を悪く
+  上書きし **heuristic を下回る**。しかも net の value が誤るデッキでは**探索を増やすほど悪化**（救えない）。
+- **判断**: NN の手と heuristic の手が違うとき、両者を**heuristic ロールアウトで実地比較**
+  （`ismcts.evaluate_actions_by_rollout`）し、**接地評価で heuristic を上回る時だけ NN 手を採用**
+  （`nn_mcts` の `floor_rollouts`）。net が間違っても pilot は heuristic を下回らない。
+- **効果（実測・champion・floor=8）**: 素 net 0.25→pilot **0.575**(vs heuristic) / 0.175→**0.45**(vs ismcts)。
+  net 非依存の安全弁で**≥heuristic・≈ISMCTS の使える pilot**が即完成。推論/評価/提出向け（収集では未使用）。
+
+## 現在地と次の判断（2026-07-01）
+- **到達点**: floor 付き NN pilot が **≥heuristic・≈ISMCTS（0.575 / 0.45）**＝実戦投入可能水準。ただし
+  **素の net はまだ弱い**（0.25）＝大容量 net が distill-1h(50反復)で**未収束**。
+- **distillの天井**: 蒸留は教師 ISMCTS が上限。素 net が ISMCTS に**届いていない**今は、まだ蒸留で伸びしろ有り
+  （頭打ちではなく未収束）。届いた後は蒸留では超えられない＝improve が要る。
+- **判断の目安**:
+  - 素 net < ISMCTS（今ここ）→ **distill を増やして収束**（`make distill DISTILL_ITERS=150`）。floor 付き eval で確認。
+  - 素 net ≈ ISMCTS まで来た → **improve（self-play）で天井超え**（[design 2](#2-nn-操縦を蒸留--improve-の2段で育てる)）。
+  - improve も capacity/features/sims/安定性で頭打ちしうる（無限でない）。停滞なら容量/sims を上げる。
+- **提出**: 当面 ISMCTS。floor 付き NN が **> ISMCTS** を安定して満たしたら提出操縦を NN に切替（[design 11](#11-提出物には操縦も含まれる)）。
+
 ## 規約と公開計画
 - **Competition Data**（cabt エンジン・カードデータ・抽出デッキ）は再配布禁止・コミット禁止・追跡外。
   競技終了後は**速やかに削除**する義務（作業ツリーの `data/` `src/cg/`）。リポジトリ自体の削除義務はない。
-- **Pokémon Elements**（カード名・効果文・デッキ等）はコード/コミット/ノート/このドキュメントに書かない。
+- **Pokémon Elements**（カード名・効果文・デッキ等）はコード/コミット/ノート/このドキュメントに**書かない（＝公開しない）**。
+  ただし**モデルの学習/推論にローカルで使うのは許諾の範囲内**（L73）＝効果文を読んで数値カテゴリ化するのは可
+  （[design 13](#13-効果文を読んで数値カテゴリ化するnn-v2規約上ok)）。「使ってよい・出さないだけ」。
 - **公開計画**（競技終了後）: ① Competition Data 削除 → ②履歴に Pokémon Elements が無いか最終確認
   （現状クリーン）→ ③ OSI ライセンス（MIT 推奨・勝者は必須）を付与 → ④ Kaggle フォーラムで告知 →
   ⑤ リポジトリを public 化 → ⑥ public+Free で使える **Wiki** へこの学習ノートを移植。

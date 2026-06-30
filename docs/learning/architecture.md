@@ -28,24 +28,24 @@
 ### 基盤（カード・デッキ・対戦）
 | モジュール | 役割 |
 |---|---|
-| [cards.py](../../src/cards.py) | カードのメタ情報（HP・タイプ・特性有無・威力効率など**数値のみ**）をロード。効果文は読まない |
+| [cards.py](../../src/cards.py) | カードのメタ情報をロード。HP・タイプ・威力効率＋**効果文を数値カテゴリ化**（draw/heal/KO等）・weakness等。生テキストは保持しない |
 | [deck.py](../../src/deck.py) | デッキの表現・合法性・変異(mutate)・構成・構造化生成(structured_deck) |
 | [harness.py](../../src/harness.py) | 自己対戦ハーネス（2エージェントを戦わせ勝率を返す・席入替で先手有利を打ち消す） |
-| [features.py](../../src/features.py) | 局面・合法手を数値ベクトルに encode（NN 入力）。特性/手札構成も含む（末尾追加でwarm-start可） |
+| [features.py](../../src/features.py) | 局面・合法手を数値ベクトルに encode（NN 入力）。効果カテゴリ・KO/弱点相互作用＋**末尾に整数 cardId**（net が埋め込む） |
 
 ### 操縦（pilot）
 | モジュール | 役割 |
 |---|---|
 | [agents.py](../../src/agents.py) | heuristic 操縦（貪欲・速いが特性/効果/トレーナーは使わない） |
-| [ismcts.py](../../src/ismcts.py) | ISMCTS 操縦（determinized UCT）。`make_ismcts_agent` と、蒸留用に訪問数を返す `ismcts_aggregate` |
+| [ismcts.py](../../src/ismcts.py) | ISMCTS 操縦（determinized UCT）。`make_ismcts_agent`／蒸留用 `ismcts_aggregate`／接地floor用 `evaluate_actions_by_rollout`（手を実地ロールアウト評価） |
 | [determinize.py](../../src/determinize.py) | 隠れ情報の決定化（相手山札/手札のサンプリング推定） |
-| [nn_mcts.py](../../src/nn_mcts.py) | NN 誘導 MCTS（PUCT）。葉をロールアウトせず評価器で評価。`aggregate_visits` が訪問分布を返す |
+| [nn_mcts.py](../../src/nn_mcts.py) | NN 誘導 MCTS（PUCT）。葉を評価器で評価。`aggregate_visits`／`make_nn_mcts_agent(floor_rollouts=)` で接地 floor（pilot≥heuristic） |
 | [nn_eval.py](../../src/nn_eval.py) | 学習済み PVNet を nn_mcts 用の評価器 `evaluator(obs)->(value, priors)` に変換 |
 
 ### NN（学習）
 | モジュール | 役割 |
 |---|---|
-| [net.py](../../src/net.py) | PVNet（policy/value の2出力を持つネット）の定義 |
+| [net.py](../../src/net.py) | PVNet（policy/value の2出力）。**cardId Embedding**＋容量(hidden512/3層)。末尾 id 列を分離して埋め込み |
 | [train.py](../../src/train.py) | 学習ループ（value=BCE + policy=交差エントロピー）・保存/読込・`load_net_warmstart` |
 | [distill.py](../../src/distill.py) | ISMCTS 教師の蒸留データ収集。温度で one-hot↔soft 1本化・CPU 並列収集 |
 | [selfplay.py](../../src/selfplay.py) | 自己対戦データ収集（improve の中核・訪問分布を soft-π に） |
