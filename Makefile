@@ -108,8 +108,8 @@ distill: ## ISMCTS蒸留（複数デッキ・強い教師・resume継ぎ足し�
 distill-1h: ## 約1時間の蒸留（前回に継ぎ足し・日中ちょくちょく用）
 	$(MAKE) distill DISTILL_ITERS=50
 
-distill-overnight: ## 一晩の蒸留（継ぎ足し・強い教師0.3で多め・約7h目安）
-	$(MAKE) distill DISTILL_ITERS=350 DISTILL_TB=0.3
+distill-overnight: ## 蒸留はプラトーするので控えめに（強い教師0.3・約2h目安）。長時間は improve 側で
+	$(MAKE) distill DISTILL_ITERS=120 DISTILL_TB=0.3
 
 # 蒸留は教師(ISMCTS)が天井＝五分まで。improve は **蒸留ネットを種に self-play** で天井を破る。
 # MCTS(NN) は NN 単体より強い方策改善演算子なので、その訪問分布(soft-π)を学べば ISMCTS を
