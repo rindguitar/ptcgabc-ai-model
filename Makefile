@@ -89,7 +89,9 @@ train: ## NN生 self-play（上級者向け・例: make train TRAIN_ARGS="--resu
 # 評価は: make eval-net EVAL_ARGS="--net models/pvnet_distill_best.pt"
 DISTILL_OUT   ?= models/pvnet_distill.pt
 DISTILL_BEST  ?= models/pvnet_distill_best.pt
-DISTILL_TB    ?= 0.25
+# 教師(ISMCTS)の1手秒。診断で **TB=0.25 は heuristic 未満(0.375)＝弱教師**、TB=0.5 で 0.733、
+# 1.0 は誤差内の微増で2倍遅い → **0.5 が最適点**。弱教師を蒸留しないよう既定 0.5。
+DISTILL_TB    ?= 0.5
 DISTILL_ITERS ?= 60
 # 方策ターゲット温度。0=one-hot（既定・浅い teacher で安全）。>0 で訪問分布 soft-π を解放
 # （soft は teacher を深くした時=DISTILL_TB↑ でのみ有効。例: 鋭め soft なら 0.5）。
@@ -108,8 +110,8 @@ distill: ## ISMCTS蒸留（複数デッキ・強い教師・resume継ぎ足し�
 distill-1h: ## 約1時間の蒸留（前回に継ぎ足し・日中ちょくちょく用）
 	$(MAKE) distill DISTILL_ITERS=50
 
-distill-overnight: ## 蒸留はプラトーするので控えめに（強い教師0.3・約2h目安）。長時間は improve 側で
-	$(MAKE) distill DISTILL_ITERS=120 DISTILL_TB=0.3
+distill-overnight: ## 強い教師(TB=0.5)で蒸留（大容量netの収束に・約4-5h目安）。長時間の伸びは improve 側で
+	$(MAKE) distill DISTILL_ITERS=120
 
 # 蒸留は教師(ISMCTS)が天井＝五分まで。improve は **蒸留ネットを種に self-play** で天井を破る。
 # MCTS(NN) は NN 単体より強い方策改善演算子なので、その訪問分布(soft-π)を学べば ISMCTS を

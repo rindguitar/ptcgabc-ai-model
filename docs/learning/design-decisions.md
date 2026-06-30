@@ -113,10 +113,14 @@
 ## 現在地と次の判断（2026-07-01）
 - **到達点**: floor 付き NN pilot が **≥heuristic・≈ISMCTS（0.575 / 0.45）**＝実戦投入可能水準。ただし
   **素の net はまだ弱い**（0.25）＝大容量 net が distill-1h(50反復)で**未収束**。
-- **distillの天井**: 蒸留は教師 ISMCTS が上限。素 net が ISMCTS に**届いていない**今は、まだ蒸留で伸びしろ有り
-  （頭打ちではなく未収束）。届いた後は蒸留では超えられない＝improve が要る。
+- **重大な発見（policy診断・`make diagnose`）**: 真因は**教師が弱かった**こと。診断で
+  **ISMCTS(TB=0.25)=heuristic 未満(0.375)**、TB=0.5 で 0.733、TB=1.0 で 0.767。つまり**heuristic より
+  弱い手本を蒸留していた**＝素 net も heuristic 未満・policy 平坦(max prior 0.18)・教師再現 0.23。
+  対策＝**DISTILL_TB の既定を 0.5 に**（0.25/0.3 は使わない）。**蒸留前に「教師が heuristic を超えるか」を必ず確認**。
+- **教訓**: 蒸留は教師の質が全て。安さ優先で TB を下げると**heuristic 未満の手本**になり逆効果。`make diagnose`
+  の shortcut度/教師再現度/集中度/**教師強度**で「policy が学べない」原因（文脈無視か・弱教師か・未収束か）を切り分ける。
 - **判断の目安**:
-  - 素 net < ISMCTS（今ここ）→ **distill を増やして収束**（`make distill DISTILL_ITERS=150`）。floor 付き eval で確認。
+  - 素 net < ISMCTS → **強い教師(TB=0.5)で distill して収束**。`make diagnose`/floor付き eval で確認。
   - 素 net ≈ ISMCTS まで来た → **improve（self-play）で天井超え**（[design 2](#2-nn-操縦を蒸留--improve-の2段で育てる)）。
   - improve も capacity/features/sims/安定性で頭打ちしうる（無限でない）。停滞なら容量/sims を上げる。
 - **提出**: 当面 ISMCTS。floor 付き NN が **> ISMCTS** を安定して満たしたら提出操縦を NN に切替（[design 11](#11-提出物には操縦も含まれる)）。
