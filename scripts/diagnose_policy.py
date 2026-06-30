@@ -32,7 +32,7 @@ from agents import make_heuristic_agent  # noqa: E402
 from cards import load_card_meta  # noqa: E402
 from cg.game import battle_finish, battle_select, battle_start  # noqa: E402
 from cg.api import to_observation_class  # noqa: E402
-from deck import load_deck  # noqa: E402
+from deckopt import _load_pool  # noqa: E402
 from harness import evaluate  # noqa: E402
 from ismcts import make_ismcts_agent  # noqa: E402
 from nn_eval import make_net_evaluator  # noqa: E402
@@ -147,8 +147,10 @@ def main() -> None:
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     meta = load_card_meta()
-    paths = args.deck or sorted(glob.glob("data/*.csv"))[:3]
-    decks = [load_deck(p) for p in paths]
+    paths = args.deck or sorted(glob.glob("data/*.csv"))
+    decks = _load_pool(paths)[:3]  # 非デッキ CSV（カードデータ等）は除外される
+    if not decks:
+        raise SystemExit("解析できる60枚デッキが見つかりません（--deck で指定）")
     rng = random.Random(args.seed)
     net = load_net(args.net, device)
 
