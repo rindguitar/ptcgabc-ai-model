@@ -23,9 +23,10 @@ from cg.game import battle_finish, battle_select, battle_start  # noqa: E402
 from deck import load_deck  # noqa: E402
 from features import (  # noqa: E402
     ACTION_FEAT_LEN,
-    ACTIVE_META_FEAT,
+    GLOBAL_FEAT,
     HAND_FEAT,
     OBS_FEAT_LEN,
+    PLAYER_FEAT,
     encode_actions,
     encode_observation,
     observation_feature_size,
@@ -94,9 +95,9 @@ def test_hand_block_reflects_hand(meta):
     try:
         assert obs is not None
         vec = encode_observation(obs, meta)
-        # 手札ブロックは末尾の ACTIVE_META(自分/相手の2体分)より前にある
-        end = -2 * ACTIVE_META_FEAT
-        hand_block = vec[end - HAND_FEAT : end]
+        # 手札ブロックは GLOBAL + 両プレイヤー の直後（末尾の追加特徴に影響されない前方基準）
+        start = GLOBAL_FEAT + 2 * PLAYER_FEAT
+        hand_block = vec[start : start + HAND_FEAT]
         assert hand_block.shape == (HAND_FEAT,)
         assert np.all((hand_block >= 0.0) & (hand_block <= 1.0))
         # turn>=3 の MAIN なので手札があり、種別構成のどれかは立つはず

@@ -32,15 +32,23 @@ HAND_FEAT = 7
 # アクティブのメタ（自分/相手の2体・末尾に追加）: is_special + にげるコスト + 特性効果カテゴリ。
 # 効果テキストを数値化した ability_effect ビットを net が読めるようにする（NN v2）。
 ACTIVE_META_FEAT = 2 + EFFECT_CATEGORY_COUNT
-# 観測ベクトル長。HAND_FEAT / ACTIVE_META は**末尾**に足す（ウォームスタートで旧重みを先頭へ流用）。
-OBS_FEAT_LEN = GLOBAL_FEAT + 2 * PLAYER_FEAT + HAND_FEAT + 2 * ACTIVE_META_FEAT
+# cardId 埋め込み用に**ベクトル末尾へ整数 cardId を載せる**（net が分離して Embedding する・NN v2）。
+# 数値特徴で粗くしか表せないカード固有性を学習で捉えるため。warm-start 対象外＝再学習前提。
+N_STATE_ID = 2  # 自分/相手アクティブの cardId
+N_ACTION_ID = 1  # その手の対象 cardId
+# 観測ベクトル長。末尾は [... HAND, ACTIVE_META×2, cardId×N_STATE_ID]（id は最後）。
+OBS_FEAT_LEN = (
+    GLOBAL_FEAT + 2 * PLAYER_FEAT + HAND_FEAT + 2 * ACTIVE_META_FEAT + N_STATE_ID
+)
 # 行動の対象カードのメタ（末尾に追加）: 特性有無 / 威力効率 / HP
 ACTION_CARD_FEAT = 3
 # 行動の効果・盤面相互作用（末尾に追加・NN v2）: ワザ効果カテゴリ(ビット) ＋
 # 相手アクティブHP / damage比 / KO可能フラグ / 弱点一致フラグ の 4。手の良し悪しを net が読める。
 ACTION_EFFECT_FEAT = EFFECT_CATEGORY_COUNT + 4
-# 行動特徴量長。ACTION_CARD_FEAT / ACTION_EFFECT_FEAT は**末尾**に足す（同上・ウォームスタート用）。
-ACTION_FEAT_LEN = N_OPTION_TYPES + 2 + ACTION_CARD_FEAT + ACTION_EFFECT_FEAT
+# 行動特徴量長。末尾は [... ACTION_CARD, ACTION_EFFECT, cardId×N_ACTION_ID]（id は最後）。
+ACTION_FEAT_LEN = (
+    N_OPTION_TYPES + 2 + ACTION_CARD_FEAT + ACTION_EFFECT_FEAT + N_ACTION_ID
+)
 
 
 def _bits(mask: int, n: int) -> list[float]:
@@ -175,6 +183,9 @@ def encode_observation(obs: Observation, meta: CardMeta) -> np.ndarray:
     my_act = st.players[yi].active[0] if st.players[yi].active else None
     opp_act = st.players[1 - yi].active[0] if st.players[1 - yi].active else None
     feats += _encode_active_meta(my_act, meta) + _encode_active_meta(opp_act, meta)
+    # 末尾に cardId（整数）を載せる＝net が Embedding する。0=不在/pad。
+    feats.append(float(my_act.id) if my_act else 0.0)
+    feats.append(float(opp_act.id) if opp_act else 0.0)
     return np.asarray(feats, dtype=np.float32)
 
 
@@ -221,5 +232,7 @@ def encode_actions(obs: Observation, meta: CardMeta) -> np.ndarray:
         row.append(min(damage / opp_hp, 2.0) / 2.0 if opp_hp > 0 else 0.0)
         row.append(1.0 if (opp_hp > 0 and damage >= opp_hp) else 0.0)
         row.append(1.0 if (my_type >= 0 and opp_weak == my_type) else 0.0)
+        # 末尾に対象 cardId（整数）＝net が Embedding する。0=なし/pad。
+        row.append(float(cid))
         rows.append(row)
     return np.asarray(rows, dtype=np.float32)
