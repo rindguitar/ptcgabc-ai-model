@@ -22,7 +22,7 @@ RUN     := $(COMPOSE) run --rm dev
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
         ratchet ratchet-overnight ratchet-nn gauntlet eval-deck champion-gate \
-        train distill distill-1h distill-overnight improve improve-1h eval-net \
+        train distill distill-1h distill-overnight improve improve-1h eval-net diagnose \
         submission build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキ探索（ratchet が内部で使う）の既定パラメータ --------------------
@@ -139,6 +139,12 @@ EVAL_NET   ?= $(firstword $(wildcard models/pvnet_improve_best.pt) $(wildcard mo
 EVAL_ARGS  ?=
 eval-net: ## 訓練済みNNの確定判断用 評価（既定: 最良net・vs heuristic 40試合・Docker）
 	$(RUN) python scripts/eval_net.py --net $(EVAL_NET) --vs $(EVAL_VS) --games $(EVAL_GAMES) $(EVAL_ARGS)
+
+# policy 診断: net が手を順位付けできているか／文脈無視のショートカットか／教師が弱くないかを測る。
+# 「value は学べるが policy は学べない」の原因切り分け用。
+DIAGNOSE_ARGS ?=
+diagnose: ## NN policy 診断（shortcut度/教師再現度/文脈感度/集中度/教師強度・Docker）
+	$(RUN) python scripts/diagnose_policy.py --net $(EVAL_NET) $(DIAGNOSE_ARGS)
 
 # 多様ガントレット生成（過学習対策）。生成後は league/eval-deck/gate が自動でこれを相手に使う
 # （models/gauntlet/ があれば data/*.csv より優先）。相手が多彩になる分、評価/探索は遅くなる。
