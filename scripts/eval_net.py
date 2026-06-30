@@ -42,6 +42,12 @@ def main() -> None:
     p.add_argument("--sims", type=int, default=64, help="NN-MCTS の1手反復")
     p.add_argument("--dets", type=int, default=2, help="determinization 数")
     p.add_argument("--time-budget", type=float, default=0.3, help="相手 ISMCTS の1手秒")
+    p.add_argument(
+        "--floor-rollouts",
+        type=int,
+        default=0,
+        help="接地安全弁の rollout 数（>0 で NN 手 vs heuristic 手を実地比較し pilot≥heuristic 保証）",
+    )
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
 
@@ -58,6 +64,7 @@ def main() -> None:
         evaluator=evaluator,
         n_simulations=args.sims,
         n_determinizations=args.dets,
+        floor_rollouts=args.floor_rollouts,
     )
 
     if args.vs == "heuristic":

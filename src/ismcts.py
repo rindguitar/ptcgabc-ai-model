@@ -254,6 +254,58 @@ def ismcts_aggregate(
     return dict(agg)
 
 
+def evaluate_actions_by_rollout(
+    meta: CardMeta,
+    obs: Observation,
+    my_deck: list[int],
+    opp_deck: list[int],
+    actions: list[list[int]],
+    rng: random.Random,
+    n_rollouts: int = 8,
+    max_rollout_depth: int = 300,
+    rollout_policy: Agent | None = None,
+    opp_pool: list[list[int]] | None = None,
+) -> dict[tuple[int, ...], float]:
+    """候補手 actions を determinize＋適用後に heuristic rollout で実地評価し、平均価値(root視点)を返す.
+
+    **net 非依存の接地評価**。NN-MCTS の floor（接地安全弁）に使う＝net の value が誤っていても、
+    実際に手を打って rollout した結果で「heuristic 手 vs NN 手」を比較できる。返り値は
+    {action_key: 平均価値[0,1]}（rollout できなかった手は欠落）。
+    """
+    policy = rollout_policy or make_heuristic_agent(meta)
+    root_seat = obs.current.yourIndex
+    sums: dict[tuple[int, ...], float] = {tuple(a): 0.0 for a in actions}
+    counts: dict[tuple[int, ...], int] = {tuple(a): 0 for a in actions}
+    for _ in range(n_rollouts):
+        opp = pick_opponent_deck(obs, opp_pool, opp_deck, rng)
+        det = determinize(obs, my_deck, opp, rng)
+        try:
+            root_state = search_begin(
+                obs,
+                det["your_deck"],
+                det["your_prize"],
+                det["opponent_deck"],
+                det["opponent_prize"],
+                det["opponent_hand"],
+                det["opponent_active"],
+                False,
+            )
+        except (ValueError, IndexError):
+            continue
+        root_id = root_state.searchId
+        for a in actions:
+            key = tuple(a)
+            try:
+                child_state = search_step(root_id, list(a))
+            except (ValueError, IndexError):
+                continue
+            child = _Node(child_state, root_seat, rng, policy)
+            sums[key] += _rollout(child, policy, rng, max_rollout_depth)
+            counts[key] += 1
+        search_end()
+    return {k: (sums[k] / counts[k]) for k in sums if counts[k] > 0}
+
+
 def make_ismcts_agent(
     meta: CardMeta,
     my_deck: list[int],

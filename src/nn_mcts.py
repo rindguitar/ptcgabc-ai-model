@@ -238,11 +238,18 @@ def make_nn_mcts_agent(
     c_puct: float = 1.5,
     fallback: Agent | None = None,
     opp_pool: list[list[int]] | None = None,
+    floor_rollouts: int = 0,
+    floor_margin: float = 0.0,
 ) -> Agent:
     """NN 誘導 MCTS（PUCT）エージェントを生成する.
 
     evaluator 未指定時はダミー（サイド差 value＋一様 priors）を使う。実運用では学習済み
     NN を渡す。MAIN/ATTACK の pick-one 決定でのみ探索し、他はヒューリスティック即決。
+
+    floor_rollouts>0 で**接地安全弁**を有効化: MCTS が選んだ手と heuristic の手が異なるとき、
+    両者を heuristic rollout で実地比較し（net 非依存）、**heuristic を接地評価で上回るときだけ
+    NN 手を採用**する。net の value が誤っていても pilot が heuristic を下回らない保証。
+    推論/評価/提出向け（rollout 分のレイテンシ増・自己対戦の収集では使わない）。
     """
     heuristic = make_heuristic_agent(meta)
     evaluator = evaluator or make_prize_evaluator(meta)
@@ -266,6 +273,30 @@ def make_nn_mcts_agent(
         )
         if not visits:
             return heuristic(obs, rng)
-        return list(max(visits, key=lambda k: visits[k]))
+        nn_action = list(max(visits, key=lambda k: visits[k]))
+        if floor_rollouts <= 0:
+            return nn_action
+        # 接地 floor: NN 手と heuristic 手が違うときだけ rollout で実地比較
+        h_action = heuristic(obs, rng)
+        if tuple(h_action) == tuple(nn_action):
+            return nn_action
+        from ismcts import evaluate_actions_by_rollout
+
+        vals = evaluate_actions_by_rollout(
+            meta,
+            obs,
+            my_deck,
+            opp_deck,
+            [nn_action, h_action],
+            rng,
+            n_rollouts=floor_rollouts,
+            opp_pool=opp_pool,
+        )
+        nn_v = vals.get(tuple(nn_action))
+        h_v = vals.get(tuple(h_action))
+        # 接地評価で NN 手が heuristic 手を margin 超で上回るときだけ NN を採用（さもなくば heuristic）
+        if nn_v is not None and h_v is not None and nn_v > h_v + floor_margin:
+            return nn_action
+        return list(h_action)
 
     return agent

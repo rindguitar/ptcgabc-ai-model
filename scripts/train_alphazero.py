@@ -45,8 +45,8 @@ def _eval_vs_heuristic(net, meta, decks, device, games_total, sims, dets, rng) -
     """
     evaluator = make_net_evaluator(net, meta, device)
     heuristic = make_heuristic_agent(meta)
-    # 1デッキあたり最低10試合は確保（4試合だと勝率が粗くノイズで best 選抜がブレるため）
-    per = max(10, games_total // len(decks))
+    # 1デッキあたり最低15試合は確保（少試合だと勝率が粗く、max選抜が上振れを拾い best を誤る）
+    per = max(15, games_total // len(decks))
     rates = []
     for deck in decks:
         nn_agent = make_nn_mcts_agent(
