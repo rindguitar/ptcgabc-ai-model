@@ -45,7 +45,7 @@
 ### NN（学習）
 | モジュール | 役割 |
 |---|---|
-| [net.py](../../src/net.py) | PVNet（policy/value の2出力）。**cardId Embedding**＋容量(hidden512/3層)。末尾 id 列を分離して埋め込み |
+| [net.py](../../src/net.py) | PVNet（policy/value の2出力・MLP）。既定 hidden256/trunk2層・**埋め込み無し**(card_emb=0)＝データ量に合わせ right-size。card_emb>0 で cardId Embedding 解放（末尾 id 列を分離）。汎化する効果/KO/弱点 float 特徴は残す |
 | [train.py](../../src/train.py) | 学習ループ（value=BCE + policy=交差エントロピー）・保存/読込・`load_net_warmstart` |
 | [distill.py](../../src/distill.py) | ISMCTS 教師の蒸留データ収集。温度で one-hot↔soft 1本化・CPU 並列収集 |
 | [selfplay.py](../../src/selfplay.py) | 自己対戦データ収集（improve の中核・訪問分布を soft-π に） |
