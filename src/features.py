@@ -38,9 +38,19 @@ ACTIVE_META_FEAT = 2 + EFFECT_CATEGORY_COUNT
 # 数値特徴で粗くしか表せないカード固有性を学習で捉えるため。warm-start 対象外＝再学習前提。
 N_STATE_ID = 2  # 自分/相手アクティブの cardId
 N_ACTION_ID = 1  # その手の対象 cardId
-# 観測ベクトル長。末尾は [... HAND, ACTIVE_META×2, cardId×N_STATE_ID]（id は最後）。
+# 被弾スレット（NN v2.2・防御の対称化）: 自分アクティブが相手アクティブの最大ワザで受ける
+# 有効ダメージを算出。攻め側(行動特徴)だけでなく守り側も「弱点で2倍食らう・KOされ2枚取られる」を
+# net が読めるようにする。6: 被有効ダメージ絶対 / 被ダメージ比 / 相手にKOされる /
+#   自分が弱点を突かれる / 抵抗で軽減 / KOされて失うサイド。
+THREAT_FEAT = 6
+# 観測ベクトル長。末尾は [... HAND, ACTIVE_META×2, THREAT, cardId×N_STATE_ID]（id は最後）。
 OBS_FEAT_LEN = (
-    GLOBAL_FEAT + 2 * PLAYER_FEAT + HAND_FEAT + 2 * ACTIVE_META_FEAT + N_STATE_ID
+    GLOBAL_FEAT
+    + 2 * PLAYER_FEAT
+    + HAND_FEAT
+    + 2 * ACTIVE_META_FEAT
+    + THREAT_FEAT
+    + N_STATE_ID
 )
 # 行動の対象カードのメタ（末尾に追加）: 特性有無 / 威力効率 / HP
 ACTION_CARD_FEAT = 3
@@ -70,6 +80,43 @@ def _encode_active_meta(pk: Pokemon | None, meta: CardMeta) -> list[float]:
         float(meta.is_special.get(cid, False)),
         min(meta.retreat_cost.get(cid, 0), 4) / 4,
     ] + _bits(meta.ability_effect.get(cid, 0), EFFECT_CATEGORY_COUNT)
+
+
+def _encode_threat(
+    my_act: Pokemon | None, opp_act: Pokemon | None, meta: CardMeta
+) -> list[float]:
+    """被弾スレット（自分アクティブが相手アクティブの最大ワザで受ける有効ダメージ）を符号化.
+
+    攻め側(行動特徴)と対称に、守り側も「弱点で2倍・抵抗で−30・KOされてサイド何枚」を net に渡す。
+    相手の最大ワザダメージ(best_damage)を脅威の代理とし、自分の弱点/抵抗タイプで補正する。
+    どちらかのアクティブが不在なら全 0。
+    """
+    if my_act is None or opp_act is None:
+        return [0.0] * THREAT_FEAT
+    my_hp = my_act.hp or 0
+    my_weak = meta.weakness.get(my_act.id, -1)
+    my_resist = meta.resistance.get(my_act.id, -1)
+    opp_type = meta.pokemon_type.get(opp_act.id, -1)
+    inc = meta.best_damage.get(
+        opp_act.id, 0
+    )  # 相手アクティブの最大ワザダメージ（脅威の代理）
+    is_weak = opp_type >= 0 and my_weak == opp_type  # 自分が弱点を突かれる（×2）
+    is_resisted = opp_type >= 0 and my_resist == opp_type  # 抵抗で軽減（−30）
+    if inc > 0:
+        if is_weak:
+            inc *= 2
+        if is_resisted:
+            inc = max(0, inc - 30)
+    opp_can_ko_me = my_hp > 0 and inc >= my_hp
+    my_prize = meta.prize_value.get(my_act.id, 1)
+    return [
+        min(inc, 300) / 300,
+        min(inc / my_hp, 2.0) / 2.0 if my_hp > 0 else 0.0,
+        1.0 if opp_can_ko_me else 0.0,
+        1.0 if is_weak else 0.0,
+        1.0 if is_resisted else 0.0,
+        (my_prize / 3) if opp_can_ko_me else 0.0,
+    ]
 
 
 def observation_feature_size() -> int:
@@ -199,6 +246,8 @@ def encode_observation(obs: Observation, meta: CardMeta) -> np.ndarray:
     my_act = st.players[yi].active[0] if st.players[yi].active else None
     opp_act = st.players[1 - yi].active[0] if st.players[1 - yi].active else None
     feats += _encode_active_meta(my_act, meta) + _encode_active_meta(opp_act, meta)
+    # 被弾スレット（守り側の有効ダメージ・KO・失うサイド）を末尾追加（NN v2.2）
+    feats += _encode_threat(my_act, opp_act, meta)
     # 末尾に cardId（整数）を載せる＝net が Embedding する。0=不在/pad。
     feats.append(float(my_act.id) if my_act else 0.0)
     feats.append(float(opp_act.id) if opp_act else 0.0)
