@@ -100,6 +100,11 @@
   分離して **Embedding**（`net.PVNet`・card_emb16・共有・pad0）。容量も hidden512・trunk3層に拡張。
   Sample/encode の型は不変（id は float 配列の末尾に同居）＝侵襲最小・warm-start 契約は廃止（再学習前提）。
 - **狙い**: 学習でカード固有の有用性を捉え、ISMCTS を**真似きる→超える**表現力（prize-zone の核）。
+- **訂正（2026-07-02・撤回）**: この拡張は**裏目**だった。診断で policy が一様（教師再現度 0.10≈偶然・
+  max prior 0.16）＝**大容量が蒸留データ量（数デッキ・~1万サンプル・登場 cardId 数十種）に対して過大**で
+  未学習と判明。1300 カード埋め込みの大半が初期値のまま。→ **埋め込み撤去・hidden256/2層に right-size**
+  （`card_emb=0` で埋め込みは将来データ増時に解放可）。汎化する効果/KO/弱点 float 特徴は残す。
+  **教訓: 容量はデータ量に合わせる**（[現在地](#現在地と次の判断2026-07-02)）。
 
 ## 15. 接地 floor（net 非依存で pilot ≥ heuristic を保証）
 - **背景**: NN-MCTS は MAIN/ATTACK 以外を heuristic にフォールバック。半端な net は攻撃選択を悪く
@@ -110,20 +115,23 @@
 - **効果（実測・champion・floor=8）**: 素 net 0.25→pilot **0.575**(vs heuristic) / 0.175→**0.45**(vs ismcts)。
   net 非依存の安全弁で**≥heuristic・≈ISMCTS の使える pilot**が即完成。推論/評価/提出向け（収集では未使用）。
 
-## 現在地と次の判断（2026-07-01）
-- **到達点**: floor 付き NN pilot が **≥heuristic・≈ISMCTS（0.575 / 0.45）**＝実戦投入可能水準。ただし
-  **素の net はまだ弱い**（0.25）＝大容量 net が distill-1h(50反復)で**未収束**。
-- **重大な発見（policy診断・`make diagnose`）**: 真因は**教師が弱かった**こと。診断で
-  **ISMCTS(TB=0.25)=heuristic 未満(0.375)**、TB=0.5 で 0.733、TB=1.0 で 0.767。つまり**heuristic より
-  弱い手本を蒸留していた**＝素 net も heuristic 未満・policy 平坦(max prior 0.18)・教師再現 0.23。
-  対策＝**DISTILL_TB の既定を 0.5 に**（0.25/0.3 は使わない）。**蒸留前に「教師が heuristic を超えるか」を必ず確認**。
-- **教訓**: 蒸留は教師の質が全て。安さ優先で TB を下げると**heuristic 未満の手本**になり逆効果。`make diagnose`
-  の shortcut度/教師再現度/集中度/**教師強度**で「policy が学べない」原因（文脈無視か・弱教師か・未収束か）を切り分ける。
-- **判断の目安**:
-  - 素 net < ISMCTS → **強い教師(TB=0.5)で distill して収束**。`make diagnose`/floor付き eval で確認。
-  - 素 net ≈ ISMCTS まで来た → **improve（self-play）で天井超え**（[design 2](#2-nn-操縦を蒸留--improve-の2段で育てる)）。
-  - improve も capacity/features/sims/安定性で頭打ちしうる（無限でない）。停滞なら容量/sims を上げる。
-- **提出**: 当面 ISMCTS。floor 付き NN が **> ISMCTS** を安定して満たしたら提出操縦を NN に切替（[design 11](#11-提出物には操縦も含まれる)）。
+## 現在地と次の判断（2026-07-02）
+- **到達点**: floor 付き NN pilot が初めて **ISMCTS を安定超え**（vs ISMCTS **0.600** / vs heuristic **0.575**・
+  40試合）。floor の底上げ（純 heuristic なら対 ISMCTS≈0.30）を大きく上回る＝**NN 自体が寄与**。
+  **ISMCTS 操縦の提出チェックポイントを Kaggle にアップロード済**（improve 前に「今の強さ」を確定）。
+- **原因究明の遷移（重要な学び）**: 「policy_loss>1・手の良し悪しが学べない」の真因を段階的に切り分けた。
+  1. **弱教師説**（DISTILL_TB=0.25 は heuristic 未満）→ TB=0.5 に上げたが素 net は伸びず（教師だけが主因ではなかった）。
+  2. **one-hot ラベル雑音説（soft-π）** → 診断の**教師自己一致率 0.85（高）**で否定（教師は決定的＝雑音小）。
+  3. **本命＝net の過大容量** → 教師再現度 0.10≈偶然・max prior 0.16≈uniform。診断ルール「自己一致率高いのに
+     再現度低い＝fit 不能＝容量/データ不整合」に合致。**right-size（[design 14 訂正](#14-cardid-埋め込み容量nn-v2表現力を上げる)）で解決**。
+- **教訓**: ①**診断で切り分けてから動く**（弱教師/ラベル雑音/容量 は対策が正反対）。②**eval を信じる前にノイズを潰す**
+  （CRN＋確認評価＝上振れ昇格を除去。同一 net が 40試合で 0.467↔0.600 とブレた）。③**容量はデータ量に合わせる**。
+- **現在のフェーズ＝`improve ↔ ratchet-nn` サイクル**（distill は封印・[design 2](#2-nn-操縦を蒸留--improve-の2段で育てる)）:
+  - **improve**（self-play・~2分/iter・`improve-1h`=30iters≈1h・`--resume` 蓄積）で **raw policy を強化**
+    （診断上まだ平坦＝伸び代）。**細切れ→`eval-net EVAL_VS=ismcts`(40+) で確認→頭打ちなら止める**。
+  - improve で更に強い net ができたら **ratchet-nn** でデッキ更新（ISMCTS ゲート）。交互に回す。
+- **提出**: 当面 ISMCTS。improve フェーズ後に **issue #4（floor付きNN 提出対応）を一度だけ実装**（現 floored NN が
+  既に ISMCTS 超えのため、improve の成否に関わらず作る。net はその時の最良）（[design 11](#11-提出物には操縦も含まれる)）。
 
 ## 規約と公開計画
 - **Competition Data**（cabt エンジン・カードデータ・抽出デッキ）は再配布禁止・コミット禁止・追跡外。
