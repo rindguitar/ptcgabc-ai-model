@@ -21,7 +21,9 @@ N_OPTION_TYPES = 17  # OptionType 0..16
 MAX_BENCH = 5
 
 # ポケモン1体の特徴量: present, hp割合, hp絶対, エネ総数, エネ種別(12), 道具数, 進化前数
-POKEMON_FEAT = 1 + 1 + 1 + 1 + N_ENERGY_TYPES + 1 + 1
+# ＋（NN v2.1）サイド価値(ex=2/megaEx=3), tera(ベンチ無敵), 今出た(appearThisTurn),
+#   maxHp絶対, 抵抗力有無 の 5。ベンチも含め「2枚取り対象か・ベンチ無敵か」を net が読める。
+POKEMON_FEAT = 1 + 1 + 1 + 1 + N_ENERGY_TYPES + 1 + 1 + 5
 # プレイヤー1人: active + 状態異常5 + ベンチ5体 + カウント5
 PLAYER_FEAT = POKEMON_FEAT + 5 + MAX_BENCH * POKEMON_FEAT + 5
 # グローバル: turn, is_first, 4フラグ, stadium有無
@@ -42,9 +44,12 @@ OBS_FEAT_LEN = (
 )
 # 行動の対象カードのメタ（末尾に追加）: 特性有無 / 威力効率 / HP
 ACTION_CARD_FEAT = 3
-# 行動の効果・盤面相互作用（末尾に追加・NN v2）: ワザ効果カテゴリ(ビット) ＋
-# 相手アクティブHP / damage比 / KO可能フラグ / 弱点一致フラグ の 4。手の良し悪しを net が読める。
-ACTION_EFFECT_FEAT = EFFECT_CATEGORY_COUNT + 4
+# 行動の効果・盤面相互作用（末尾に追加）: ワザ効果カテゴリ(ビット) ＋ 盤面相互作用 8。
+# 相互作用8（NN v2.1）: 相手HP / 有効damage比 / KO可能(有効) / 弱点一致 / 抵抗一致 /
+#   KOサイド報酬(=KO可能×相手サイド価値) / 相手サイド価値 / 有効ダメージ絶対。
+# KO 判定と damage 比は**弱点×2・抵抗−30 を織り込んだ有効ダメージ**で計算する（基礎ダメージでは
+# 「弱点で倒せる／抵抗で倒せない」を誤るため）。サイド報酬で「ex を倒す2枚取り」を直接学べる。
+ACTION_EFFECT_FEAT = EFFECT_CATEGORY_COUNT + 8
 # 行動特徴量長。末尾は [... ACTION_CARD, ACTION_EFFECT, cardId×N_ACTION_ID]（id は最後）。
 ACTION_FEAT_LEN = (
     N_OPTION_TYPES + 2 + ACTION_CARD_FEAT + ACTION_EFFECT_FEAT + N_ACTION_ID
@@ -77,7 +82,7 @@ def action_feature_size() -> int:
     return ACTION_FEAT_LEN
 
 
-def _encode_pokemon(pk: Pokemon | None) -> list[float]:
+def _encode_pokemon(pk: Pokemon | None, meta: CardMeta) -> list[float]:
     """ポケモン1体を数値メタで符号化（不在は全 0）."""
     if pk is None:
         return [0.0] * POKEMON_FEAT
@@ -95,13 +100,20 @@ def _encode_pokemon(pk: Pokemon | None) -> list[float]:
     feats += [c / 6.0 for c in energy_by_type]  # エネ種別ごとの枚数
     feats.append(min(len(pk.tools), 3) / 3)
     feats.append(min(len(pk.preEvolution), 3) / 3)
+    # NN v2.1: サイド価値(ex=2/megaEx=3) / tera(ベンチ無敵) / 今出た / maxHp絶対 / 抵抗力有無
+    cid = pk.id or 0
+    feats.append(meta.prize_value.get(cid, 1) / 3)
+    feats.append(float(meta.is_tera.get(cid, False)))
+    feats.append(float(bool(pk.appearThisTurn)))
+    feats.append(min(pk.maxHp or 0, 400) / 400)
+    feats.append(1.0 if meta.resistance.get(cid, -1) >= 0 else 0.0)
     return feats
 
 
-def _encode_player(ps: PlayerState) -> list[float]:
+def _encode_player(ps: PlayerState, meta: CardMeta) -> list[float]:
     """プレイヤー1人の盤面を符号化."""
     active = ps.active[0] if ps.active and len(ps.active) > 0 else None
-    feats = _encode_pokemon(active)
+    feats = _encode_pokemon(active, meta)
     feats += [
         float(ps.poisoned),
         float(ps.burned),
@@ -111,7 +123,7 @@ def _encode_player(ps: PlayerState) -> list[float]:
     ]
     bench = ps.bench or []
     for i in range(MAX_BENCH):
-        feats += _encode_pokemon(bench[i] if i < len(bench) else None)
+        feats += _encode_pokemon(bench[i] if i < len(bench) else None, meta)
     feats += [
         min(ps.handCount or 0, 20) / 20,
         min(ps.deckCount or 0, 60) / 60,
@@ -177,7 +189,11 @@ def encode_observation(obs: Observation, meta: CardMeta) -> np.ndarray:
         float(st.retreated),
         float(len(st.stadium) > 0),
     ]
-    feats = glob + _encode_player(st.players[yi]) + _encode_player(st.players[1 - yi])
+    feats = (
+        glob
+        + _encode_player(st.players[yi], meta)
+        + _encode_player(st.players[1 - yi], meta)
+    )
     feats += _encode_hand(st.players[yi], meta)  # 末尾追加（ウォームスタート対応）
     # アクティブの効果メタ（自分/相手）を末尾追加（NN v2・特性効果カテゴリを net に渡す）
     my_act = st.players[yi].active[0] if st.players[yi].active else None
@@ -210,6 +226,10 @@ def encode_actions(obs: Observation, meta: CardMeta) -> np.ndarray:
     my_type = meta.pokemon_type.get(my_act.id, -1) if my_act else -1
     opp_hp = opp_act.hp if opp_act else 0
     opp_weak = meta.weakness.get(opp_act.id, -1) if opp_act else -1
+    opp_resist = meta.resistance.get(opp_act.id, -1) if opp_act else -1
+    opp_prize = meta.prize_value.get(opp_act.id, 1) if opp_act else 1
+    is_weak = my_type >= 0 and opp_weak == my_type  # このワザは弱点を突く（×2）
+    is_resisted = my_type >= 0 and opp_resist == my_type  # このワザは抵抗される（−30）
 
     rows = []
     for o in sel.option:
@@ -227,11 +247,24 @@ def encode_actions(obs: Observation, meta: CardMeta) -> np.ndarray:
         # ワザ効果カテゴリ（末尾追加・NN v2）
         amask = meta.attack_effect.get(o.attackId, 0) if o.attackId is not None else 0
         row += _bits(amask, EFFECT_CATEGORY_COUNT)
-        # 盤面相互作用: 相手HP / damage比 / KO可能 / 弱点一致
+        # 有効ダメージ（弱点×2・抵抗−30 を織り込む。0ダメージのワザ以外の手は damage=0）。
+        eff = damage
+        if eff > 0:
+            if is_weak:
+                eff *= 2
+            if is_resisted:
+                eff = max(0, eff - 30)
+        can_ko = opp_hp > 0 and eff >= opp_hp
+        # 盤面相互作用8: 相手HP / 有効damage比 / KO可能(有効) / 弱点 / 抵抗 /
+        #   KOサイド報酬(=KO可能×相手サイド価値) / 相手サイド価値 / 有効ダメージ絶対
         row.append(min(opp_hp, 400) / 400)
-        row.append(min(damage / opp_hp, 2.0) / 2.0 if opp_hp > 0 else 0.0)
-        row.append(1.0 if (opp_hp > 0 and damage >= opp_hp) else 0.0)
-        row.append(1.0 if (my_type >= 0 and opp_weak == my_type) else 0.0)
+        row.append(min(eff / opp_hp, 2.0) / 2.0 if opp_hp > 0 else 0.0)
+        row.append(1.0 if can_ko else 0.0)
+        row.append(1.0 if is_weak else 0.0)
+        row.append(1.0 if is_resisted else 0.0)
+        row.append((opp_prize / 3) if can_ko else 0.0)
+        row.append(opp_prize / 3)
+        row.append(min(eff, 300) / 300)
         # 末尾に対象 cardId（整数）＝net が Embedding する。0=なし/pad。
         row.append(float(cid))
         rows.append(row)

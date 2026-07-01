@@ -88,6 +88,12 @@ class CardMeta:
     is_special: dict[
         int, bool
     ]  # cardId -> ex/megaEx/tera/aceSpec のいずれか（高性能札の代理）
+    # KO 時に相手が取るサイド枚数（megaEx=3 / ex=2 / それ以外=1）。ex/megaEx フラグ由来なので
+    # tera が ex でない場合も正しく 1 になる（prize と tera=ベンチ無敵を独立に扱う）。
+    prize_value: dict[int, int]  # cardId -> 1/2/3
+    is_tera: dict[
+        int, bool
+    ]  # cardId -> tera（ベンチにいる間はワザのダメージを受けない）
 
     def is_basic_pokemon(self, card_id: int) -> bool:
         """指定 cardId がたねポケモンか."""
@@ -125,6 +131,8 @@ def load_card_meta() -> CardMeta:
     resistance: dict[int, int] = {}
     retreat_cost: dict[int, int] = {}
     is_special: dict[int, bool] = {}
+    prize_value: dict[int, int] = {}
+    is_tera: dict[int, bool] = {}
     for c in cards:
         cid = c["cardId"]
         ctype = c.get("cardType")
@@ -156,6 +164,9 @@ def load_card_meta() -> CardMeta:
         is_special[cid] = bool(
             c.get("ex") or c.get("megaEx") or c.get("tera") or c.get("aceSpec")
         )
+        # KO 時に取られるサイド枚数（megaEx=3 / ex=2 / それ以外=1）。ex/megaEx フラグ由来。
+        prize_value[cid] = 3 if c.get("megaEx") else (2 if c.get("ex") else 1)
+        is_tera[cid] = bool(c.get("tera"))  # ベンチにいる間はワザのダメージを受けない
         # 色 -> 基本エネの cardId（基本エネは色ごとに1枚）
         if ctype == CardType.BASIC_ENERGY:
             basic_energy_id.setdefault(c.get("energyType"), cid)
@@ -177,4 +188,6 @@ def load_card_meta() -> CardMeta:
         resistance=resistance,
         retreat_cost=retreat_cost,
         is_special=is_special,
+        prize_value=prize_value,
+        is_tera=is_tera,
     )

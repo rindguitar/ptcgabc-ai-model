@@ -115,6 +115,19 @@
 - **効果（実測・champion・floor=8）**: 素 net 0.25→pilot **0.575**(vs heuristic) / 0.175→**0.45**(vs ismcts)。
   net 非依存の安全弁で**≥heuristic・≈ISMCTS の使える pilot**が即完成。推論/評価/提出向け（収集では未使用）。
 
+## 16. 特徴 v2.1（サイド価値・有効ダメージ・tera）— ex の2枚取りを明示
+- **背景**: Kaggle リプレイで気づいた欠落。**ex は KO でサイド2枚・megaEx は3枚**取られるが、特徴は
+  `is_special`(ex/mega/tera/aceSpec 一括の bool)だけで**枚数を区別せず**、行動側に「この KO=何枚」も無かった。
+  さらに **KO 可能フラグが基礎ダメージ**で、弱点×2/抵抗−30 を織り込まず「弱点で倒せる/抵抗で倒せない」を誤っていた。
+- **判断（cards.py / features.py）**:
+  - `prize_value`（**megaEx=3 / ex=2 / それ以外=1**・ex/megaEx フラグ由来）と `is_tera` を追加。tera は
+    **prize ではなくベンチ無敵**（ベンチのワザダメージ無効）なので prize と**独立**に扱う（tera非ex でも prize は正しく1）。
+  - ポケモン特徴（active/bench 両方）に prize_value/tera/appearThisTurn/maxHp絶対/抵抗有無 を追加。
+  - 行動の相互作用を **有効ダメージ**（弱点×2・抵抗−30）で再計算し、**KOサイド報酬（=KO可能×相手サイド価値）**
+    を明示。これで NN は「弱点を突いて ex を倒す2枚取り」を直接評価できる。
+- **注意**: 効果は NN の特徴層のみ。**ISMCTS/エンジンは元から弱点・抵抗・サイドを正確に処理**（提出=ISMCTS は影響なし）。
+  弱点×2/抵抗−30 は標準近似（エンジンが真値）。特徴次元が変わるため**旧 net は無効＝床を一度作り直す**。
+
 ## 現在地と次の判断（2026-07-02）
 - **到達点**: floor 付き NN pilot が初めて **ISMCTS を安定超え**（vs ISMCTS **0.600** / vs heuristic **0.575**・
   40試合）。floor の底上げ（純 heuristic なら対 ISMCTS≈0.30）を大きく上回る＝**NN 自体が寄与**。
