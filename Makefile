@@ -203,8 +203,14 @@ ratchet-nn: ## NN操縦の高速 ratchet（探索=蒸留NN-MCTS・Docker／判�
 	@echo "ratchet-nn 完了。最良は models/champion_best.csv（提出はこれを使う）"
 
 # === 提出 ==================================================================
-submission: ## 提出パッケージ models/submission.tar.gz を作成（champion＋ISMCTS＋cg＋deck）
-	$(PY) scripts/build_submission.py
+# 同梱デッキは champion_best.csv を優先（ratchet の最良＝単調改善の到達点）。
+# champion_deck.csv は ratchet 開始時の起点で、終了時に best へ更新されない＝古い可能性がある。
+submission: ## 提出パッケージ models/submission.tar.gz を作成（champion_best＋ISMCTS＋cg＋deck）
+	@deck=models/champion_best.csv; \
+	if [ ! -f "$$deck" ]; then deck=models/champion_deck.csv; \
+		echo "champion_best.csv 未作成→ $$deck を同梱（先に ratchet 推奨）"; \
+	else echo "同梱デッキ（最良）: $$deck"; fi; \
+	$(PY) scripts/build_submission.py --deck $$deck
 
 # === Docker 実行（重い作業 / GPU = Phase 3） ===============================
 # build は数分〜10 分以上かかるため、原則ユーザーが手動実行する（CLAUDE.md 参照）。
