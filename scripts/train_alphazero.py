@@ -36,15 +36,26 @@ from distill import generate_ismcts_samples  # noqa: E402
 from selfplay import generate_samples  # noqa: E402
 from train import load_net, load_net_warmstart, save_net, train  # noqa: E402
 
+# best 昇格のヒステリシス幅。eval のノイズ(1デッキ15試合で SE≈0.13)で誤昇格しないよう、
+# best を明確に上回った時だけ確認評価に進む（max 選抜の上方バイアス対策）。
+_PROMOTE_MARGIN = 0.03
 
-def _eval_vs_heuristic(net, meta, decks, device, games_total, sims, dets, rng) -> float:
+
+def _eval_vs_heuristic(
+    net, meta, decks, device, games_total, sims, dets, seed
+) -> float:
     """現ネット操縦(NN-MCTS) vs heuristic を**複数デッキ平均**で評価する（汎化を測る）.
 
     best 選抜が1デッキに偏ると、そのデッキだけ強い net を選び他デッキで弱くなる（実測の症状）。
     games_total をデッキ数で配分して総試合数を概ね一定に保ち、デッキ横断の平均勝率を返す。
+
+    **Common Random Numbers**: eval 専用の乱数を毎回 `seed` から作り直す。こうすると iter を
+    跨いで配牌・determinization が同一になり、勝率の差が「運」でなく「net の差」だけを反映する
+    （＝iter 間比較の分散が激減し、max 選抜が上振れに騙されにくくなる）。
     """
     evaluator = make_net_evaluator(net, meta, device)
     heuristic = make_heuristic_agent(meta)
+    rng = random.Random(seed)  # 毎回同じ種→ CRN（対戦条件を固定し net だけを比較）
     # 1デッキあたり最低15試合は確保（少試合だと勝率が粗く、max選抜が上振れを拾い best を誤る）
     per = max(15, games_total // len(decks))
     rates = []
@@ -293,8 +304,17 @@ def main() -> None:
         )
         eval_wr = ""
         if args.eval_every and (it + 1) % args.eval_every == 0:
+            # CRN 用固定シード（学習用 rng とは分離し、eval が学習データ生成を乱さない）
+            eval_seed = args.seed + 12345
             wr = _eval_vs_heuristic(
-                net, meta, decks, device, args.eval_games, args.sims, args.dets, rng
+                net,
+                meta,
+                decks,
+                device,
+                args.eval_games,
+                args.sims,
+                args.dets,
+                eval_seed,
             )
             eval_wr = f"{wr:.3f}"
             print(
@@ -305,13 +325,34 @@ def main() -> None:
                 json.dump({"last_wr": wr}, f)
             # 最良を別ファイルに退避（崩壊しても最良を失わない）。eval はノイズありなので
             # 確定判断は別途 make eval-net（40+試合）で行う前提。
-            if wr > best_wr:
-                best_wr = wr
-                save_net(net, args.best_out)
-                # 基準値を永続化（resume で引き継ぎ＝run を跨いで best が単調に上がる）
-                with open(best_meta_path, "w") as f:
-                    json.dump({"best_wr": best_wr}, f)
-                print(f"    -> best 更新（{wr:.3f}）→ {args.best_out} に保存")
+            # 昇格は「best+マージンを超え、かつ別シードの確認評価でも best を超えた」時だけ
+            # （max 選抜の上方バイアス除去。まぐれ 1 回で best を上振れ固定するのを防ぐ）。
+            if wr > best_wr + _PROMOTE_MARGIN:
+                wr2 = _eval_vs_heuristic(
+                    net,
+                    meta,
+                    decks,
+                    device,
+                    args.eval_games,
+                    args.sims,
+                    args.dets,
+                    eval_seed + 777,
+                )
+                confirmed = min(wr, wr2)  # 保守側を採用（上振れを昇格に持ち込まない）
+                if confirmed > best_wr:
+                    best_wr = confirmed
+                    save_net(net, args.best_out)
+                    # 基準値を永続化（resume で引き継ぎ＝run を跨いで best が単調に上がる）
+                    with open(best_meta_path, "w") as f:
+                        json.dump({"best_wr": best_wr}, f)
+                    print(
+                        f"    -> best 更新（eval {wr:.3f} / 確認 {wr2:.3f} → 採用 {confirmed:.3f}）"
+                        f"→ {args.best_out} に保存"
+                    )
+                else:
+                    print(
+                        f"    -> 昇格見送り（eval {wr:.3f} だが確認 {wr2:.3f}＝上振れ疑い）"
+                    )
         # 進捗を CSV に追記（各反復ごとに flush＝途中で落ちても残る）
         log_writer.writerow(
             [

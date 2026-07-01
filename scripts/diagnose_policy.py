@@ -7,6 +7,8 @@ heuristic で対戦を進めながら各 MAIN/ATTACK 決定を解析する（net
   - shortcut度  : net top手 == 最高ダメージ手 の割合（高いほど「ダメージだけ見る」文脈無視の疑い）
   - 教師再現度  : net top手 == ISMCTS の手 の割合（蒸留が効いているか）
   - 教師shortcut: ISMCTS の手 == 最高ダメージ手 の割合（教師自身が文脈フリーでないか）
+  - 自己一致率  : 同一局面で ISMCTS を2回引いた argmax の一致率（教師の確率性＝one-hot
+                  ラベル雑音の下限。低い→soft-π 向き / 高いのに再現度低い→net の容量不足）
   - 文脈感度    : KO 可能手がある局面で net / 教師 が KO 手を選ぶ割合
   - 集中度      : priors の平均最大値・平均エントロピー（policy が自信を持てているか）
 さらに教師強度: ISMCTS(TB) vs heuristic の勝率（教師が弱いと的も悪い）。
@@ -59,6 +61,8 @@ def analyze(net, meta, decks, rng, n_decisions, teacher_tb, device) -> dict:
         "teacher_ko": 0,
         "sum_max": 0.0,
         "sum_ent": 0.0,
+        "n_selfagree": 0,
+        "teacher_selfagree": 0,
     }
     deck_i = 0
     while s["n"] < n_decisions:
@@ -112,6 +116,16 @@ def analyze(net, meta, decks, rng, n_decisions, teacher_tb, device) -> dict:
                                 s["teacher_eq_dmg"] += 1
                             if ko and t_top in ko:
                                 s["teacher_ko"] += 1
+                            # 教師の自己一致率: 同一局面で ISMCTS をもう一度引き argmax 一致を測る。
+                            # 低い=教師が確率的→one-hot ラベルが局面ごとに矛盾→policy_loss の
+                            # 下限が高い（soft-π 向き）。高いのに教師再現度が低い=net の
+                            # 容量/特徴/学習量不足（soft-π では直らない）。
+                            t_act2 = teacher(obs, rng)
+                            t_top2 = t_act2[0] if len(t_act2) == 1 else None
+                            if t_top2 is not None:
+                                s["n_selfagree"] += 1
+                                if t_top2 == t_top:
+                                    s["teacher_selfagree"] += 1
                     if s["n"] >= n_decisions:
                         break
                 obs_dict = battle_select(heuristic(obs, rng))
@@ -159,6 +173,7 @@ def main() -> None:
     n = max(1, s["n"])
     nt = max(1, s["n_teacher"])
     nk = max(1, s["n_ko"])
+    nsa = max(1, s["n_selfagree"])
     print(f"解析決定数 = {s['n']}（うち KO可能局面 {s['n_ko']}）")
     print(
         f"shortcut度 : net top == 最高ダメージ手 = {s['net_eq_dmg'] / n:.2f}"
@@ -171,6 +186,10 @@ def main() -> None:
         )
         print(
             f"教師shortcut: ISMCTS手 == 最高ダメージ = {s['teacher_eq_dmg'] / nt:.2f}"
+        )
+        print(
+            f"教師自己一致率: 同一局面で ISMCTS 2回一致 = {s['teacher_selfagree'] / nsa:.2f}"
+            f"（{s['n_selfagree']}局面）"
         )
         print(f"文脈感度(教師): KO局面でKOを選ぶ        = {s['teacher_ko'] / nk:.2f}")
     print(f"文脈感度(net) : KO局面でKOを選ぶ        = {s['net_ko'] / nk:.2f}")
@@ -193,6 +212,13 @@ def main() -> None:
     print("  教師再現度が低い → そもそも蒸留が効いていない（容量/特徴/学習不足）")
     print("  教師強度が低い(<0.6) → 教師が弱い＝的が悪い（TBを上げる）")
     print("  平均最大priorが低い(≈1/手数) → policy が自信を持てず平坦")
+    print("  【soft-π か 容量 かの切り分け】")
+    print(
+        "    自己一致率が低い(≲0.6) → 教師が確率的でone-hotラベルが矛盾 → soft-π が正解"
+    )
+    print(
+        "    自己一致率が高い(≳0.8)のに教師再現度が低い → net が fit 不能 → 容量/特徴/学習量"
+    )
 
 
 if __name__ == "__main__":
