@@ -155,7 +155,9 @@ gauntlet: ## 多様な相手デッキ群 models/gauntlet/ を生成（メタ＋�
 
 # デッキ強さの確定評価（vs 相手プール・ISMCTS操縦・多めの試合）。league内部の小サンプル(6試合)では
 # 判定できない「本当にデッキが強くなったか」を測る。ホスト(CPU)。champions/ のバックアップと比較可。
-EVAL_DECK       ?= models/champion_deck.csv
+# 既定は champion_best（＝提出に使う最良）を優先。champion_deck は ratchet 後は棄却候補のことが
+# あり誤読を招くため。別デッキを測るなら make eval-deck EVAL_DECK=models/champions/champ_XXXX.csv。
+EVAL_DECK       ?= $(firstword $(wildcard models/champion_best.csv) models/champion_deck.csv)
 # 相手が gauntlet(16デッキ)なら 20試合でも合計十分（平均は安定・最悪は相手数で網羅）。厳密化は ↑。
 EVAL_DECK_GAMES ?= 20
 EVAL_DECK_ARGS  ?=
