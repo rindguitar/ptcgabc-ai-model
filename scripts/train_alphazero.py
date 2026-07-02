@@ -232,6 +232,10 @@ def main() -> None:
         net = PVNet()
         print(f"新規ネットで開始（device={device}）")
 
+    # net を device へ明示的に移す（load_net は移さない＝CPU のまま返る）。EMA の deepcopy を
+    # 同一 device で作るために train() より前に移す必要がある（さもないと EMA 更新で cuda/cpu 衝突）。
+    net.to(device)
+
     # 重み平均(EMA): 現重みのコピーを毎 iter 少し混ぜ、eval/best は EMA net で行う（SGD ノイズ均し）。
     # 作業 net は raw のまま学習を続ける（resume も raw を継ぐ）。EMA は run 内の平滑化＝毎 run 再初期化。
     ema_net = copy.deepcopy(net) if args.ema else None
