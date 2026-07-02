@@ -122,10 +122,10 @@ IMPROVE_BEST  ?= models/pvnet_improve_best.pt
 IMPROVE_SEED  ?= models/pvnet_distill_best.pt
 IMPROVE_ITERS ?= 40
 IMPROVE_ARGS  ?=
-improve: ## self-playでISMCTS超えを狙う（蒸留ネットを種・CPU並列・best保存・resume蓄積・drift安全弁）
+improve: ## self-playでISMCTS超えを狙う（蒸留ネットを種・CPU並列・best保存・resume蓄積・drift安全弁・EMA）
 	$(RUN) python scripts/train_alphazero.py --teacher selfplay --resume --resume-from-best \
 		--init-from $(IMPROVE_SEED) --out $(IMPROVE_OUT) --best-out $(IMPROVE_BEST) \
-		--iterations $(IMPROVE_ITERS) --workers $(DISTILL_WORKERS) \
+		--iterations $(IMPROVE_ITERS) --workers $(DISTILL_WORKERS) --ema \
 		--eval-every 10 --eval-games 24 $(_DECKS_FLAG) $(IMPROVE_ARGS)
 
 improve-1h: ## 約1時間の improve（前回に継ぎ足し・日中ちょくちょく用）

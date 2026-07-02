@@ -11,6 +11,7 @@ torch が要るので Docker で実行する:
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import json
 import os
@@ -149,6 +150,18 @@ def main() -> None:
     )
     p.add_argument("--eval-games", type=int, default=12, help="評価の試合数")
     p.add_argument(
+        "--ema",
+        action="store_true",
+        help="重み平均(EMA)を使う。eval/best 保存を EMA net で行い SGD ノイズを均す"
+        "（improve 向け・distill は既定 off）",
+    )
+    p.add_argument(
+        "--ema-decay",
+        type=float,
+        default=0.999,
+        help="EMA の減衰率（大きいほど滑らか・追従は遅い）",
+    )
+    p.add_argument(
         "--log", default="models/train_log.csv", help="進捗ログ CSV（追記・追跡外）"
     )
     args = p.parse_args()
@@ -218,6 +231,12 @@ def main() -> None:
     else:
         net = PVNet()
         print(f"新規ネットで開始（device={device}）")
+
+    # 重み平均(EMA): 現重みのコピーを毎 iter 少し混ぜ、eval/best は EMA net で行う（SGD ノイズ均し）。
+    # 作業 net は raw のまま学習を続ける（resume も raw を継ぐ）。EMA は run 内の平滑化＝毎 run 再初期化。
+    ema_net = copy.deepcopy(net) if args.ema else None
+    if ema_net is not None:
+        print(f"EMA 有効（decay={args.ema_decay}）: eval/best は EMA net を使う")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
 
@@ -292,6 +311,13 @@ def main() -> None:
             device=device,
         )
         save_net(net, args.out)
+        # EMA 更新: θ_ema ← decay·θ_ema + (1−decay)·θ（float パラメータのみ）
+        if ema_net is not None:
+            with torch.no_grad():
+                for p_ema, p in zip(ema_net.parameters(), net.parameters()):
+                    p_ema.mul_(args.ema_decay).add_(
+                        p.detach(), alpha=1 - args.ema_decay
+                    )
         last = (
             history[-1]
             if history
@@ -303,11 +329,16 @@ def main() -> None:
             f"-> saved {args.out}"
         )
         eval_wr = ""
-        if args.eval_every and (it + 1) % args.eval_every == 0:
+        # eval-every ごと＋**最終 iter は必ず**評価する（最も訓練が進んだ net を best-gate に挑ませる。
+        # iterations が eval-every の倍数でないと最終 iter が評価されない取りこぼしを防ぐ）。
+        is_final = it == args.iterations - 1
+        if args.eval_every and ((it + 1) % args.eval_every == 0 or is_final):
+            # eval/best は EMA net（--ema 時）。raw net の SGD ノイズを均した重みで判定する。
+            eval_net = ema_net if ema_net is not None else net
             # CRN 用固定シード（学習用 rng とは分離し、eval が学習データ生成を乱さない）
             eval_seed = args.seed + 12345
             wr = _eval_vs_heuristic(
-                net,
+                eval_net,
                 meta,
                 decks,
                 device,
@@ -329,7 +360,7 @@ def main() -> None:
             # （max 選抜の上方バイアス除去。まぐれ 1 回で best を上振れ固定するのを防ぐ）。
             if wr > best_wr + _PROMOTE_MARGIN:
                 wr2 = _eval_vs_heuristic(
-                    net,
+                    eval_net,
                     meta,
                     decks,
                     device,
@@ -341,7 +372,7 @@ def main() -> None:
                 confirmed = min(wr, wr2)  # 保守側を採用（上振れを昇格に持ち込まない）
                 if confirmed > best_wr:
                     best_wr = confirmed
-                    save_net(net, args.best_out)
+                    save_net(eval_net, args.best_out)
                     # 基準値を永続化（resume で引き継ぎ＝run を跨いで best が単調に上がる）
                     with open(best_meta_path, "w") as f:
                         json.dump({"best_wr": best_wr}, f)
