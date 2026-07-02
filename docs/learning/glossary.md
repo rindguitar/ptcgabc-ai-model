@@ -108,6 +108,16 @@ NN-MCTS の手と heuristic の手が違うとき、両者を**実際に打っ�
 自己対戦で学習が悪い方向へずれていくこと。本プロジェクトは「作業ネットの直近 eval が best を下回ったら
 **best から再開**する」安全弁（`--resume-from-best`）で暴走を止める。
 
+### 重み平均（EMA / SWA）
+SGD は各 iter でパラメータが小さく揺れる。**単一 iter の net より、直近数 iter の重みを平均した net の方が
+安定して強くなりやすい**という経験則を使う手法。
+- **EMA（Exponential Moving Average・指数移動平均）**: `θ_ema ← d·θ_ema + (1−d)·θ`（d≈0.99）。毎 iter
+  更新し、常に「最近の重みの滑らかな平均」を保つ。推論/保存には θ_ema を使う。
+- **SWA（Stochastic Weight Averaging）**: 学習後半の複数チェックポイントを**単純平均**する。
+- 効いる理由: 平均は損失地形の**平らで広い谷（汎化の良い解）**に寄りやすく、iter ごとの上振れ/下振れを打ち消す。
+- 本プロジェクトでの用途: 「最新 iter で eval」のノイズ対策。生の最新でなく **EMA net を保存・eval** すれば、
+  たまたま悪い iter を掴むリスクが減る（→ [design-decisions.md](design-decisions.md) §17）。
+
 ## 学習ログ・指標（train_log.csv / 学習中の出力）
 
 `models/train_log.csv` と学習中の表示に出る数値の読み方。列は
