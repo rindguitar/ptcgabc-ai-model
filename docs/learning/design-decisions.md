@@ -142,6 +142,23 @@
 - **iter ノイズの正しい対処**: eval を厚く（試合数↑・CRN・確認評価＝実装済）か、**重み平均（EMA/SWA）**で
   SGD ノイズを均す。loss 選抜ではない。関連 [glossary: 重み平均](glossary.md#重み平均ema--swa)
 
+## 18. improve 改修（深い収集＋Dirichlet 根ノイズ）— 横ばいの対策
+- **背景（2026-07-03 実測）**: improve 90 iters（~12h・sims=64/dets=2）で raw eval 0.40〜0.46 の横ばい。
+  floored でも種（distill_best 0.575/0.600）を超えられず（0.450/0.575）＝**利得ゼロで撤退基準に該当**。
+- **診断**: improve の学習信号は「**探索後の soft-π − 素の policy**」の差分。素の policy が平坦なうえ
+  sims=64/dets=2 の浅い探索では π も大して賢くならず、**「ほぼ自分を自分に蒸留」**して横ばいになる。
+  相手も自分（弱い者同士）で value の勝敗ターゲットも情報が薄い。
+- **改修（3点）**:
+  1. **収集専用の探索深度** `--collect-sims/--collect-dets`（improve 既定 collect-sims=128）: 収集だけ
+     探索を深くして教師の質＝差分を太らせる。eval/推論の深さは従来のまま。**iter は重くなる（質＞回数）**。
+  2. **Dirichlet 根ノイズ** `--root-noise`（既定 ε=0.25・AlphaZero 標準）: 根の priors に
+     `P←(1−ε)p+εη, η〜Dir(10/手数)`。self-play の探索が毎回同じ手に固まるのを防ぎ、データの多様性
+     ＝改善オペレータの探索範囲を保つ。**推論/評価には掛からない**（強さを測る時は決定的）。
+  3. **弱い improve 資産の退避**（models/attic/）: NN_NET/EVAL_NET が improve_best を自動優先するため、
+     種より弱い improve_best が黙って使われる事故を防ぐ。次の improve は distill_best から再出発。
+- **教訓**: self-play は回せば強くなるのではなく、**「探索が素の方策より賢い」条件が崩れると空転する**。
+  空転の兆候は eval_winrate の横ばい（loss は下がり続けるので当てにならない・[§17](#17-best-選抜はloss-最小でなくeval-勝率で行う)）。
+
 ## 現在地と次の判断（2026-07-02）
 - **到達点**: floor 付き NN pilot が初めて **ISMCTS を安定超え**（vs ISMCTS **0.600** / vs heuristic **0.575**・
   40試合）。floor の底上げ（純 heuristic なら対 ISMCTS≈0.30）を大きく上回る＝**NN 自体が寄与**。

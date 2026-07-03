@@ -64,8 +64,14 @@ def play_selfplay_game(
     c_puct: float = 1.5,
     max_steps: int = 100_000,
     sample_actions: bool = True,
+    root_noise_eps: float = 0.25,
 ) -> list[Sample]:
-    """1 試合を自己対戦し（両席とも同じ評価器）、学習サンプル列を返す."""
+    """1 試合を自己対戦し（両席とも同じ評価器）、学習サンプル列を返す.
+
+    root_noise_eps: 根の Dirichlet ノイズ（AlphaZero 標準 ε=0.25）。self-play の探索が毎回
+    同じ手に固まるのを防ぎ、データの多様性＝改善オペレータの探索範囲を保つ。0 で無効。
+    推論/評価の agent 経路（make_nn_mcts_agent）はノイズ無し（強さを測る/出すときは決定的）。
+    """
     heuristic = make_heuristic_agent(meta)
     obs_dict, _ = battle_start(deck, deck)
     pending: list[tuple[np.ndarray, np.ndarray, np.ndarray, int]] = []
@@ -92,6 +98,7 @@ def play_selfplay_game(
                     n_determinizations,
                     c_puct,
                     heuristic,
+                    root_noise_eps=root_noise_eps,
                 )
                 n = len(sel.option)
                 counts = [visits.get((i,), 0) for i in range(n)]

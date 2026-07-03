@@ -184,6 +184,37 @@ def _simulate(
         nd.w += value
 
 
+def _apply_root_noise(
+    root: _Node,
+    eps: float,
+    evaluator: Evaluator,
+    rng: random.Random,
+    fallback: Agent,
+) -> None:
+    """根の priors に Dirichlet ノイズを混ぜる（AlphaZero 標準・self-play 収集用）.
+
+    P(s,a) ← (1−ε)·p + ε·η, η〜Dir(α)（α=10/手数 の経験則）。net の priors が平坦/偏って
+    いても探索が毎回同じ手に固まらず、self-play データの多様性が保たれる（改善オペレータの
+    「見落とし」を防ぐ）。推論/評価では使わない（eps=0）。
+    """
+    if root.terminal:
+        return
+    if not root.expanded:
+        # 先に根を展開して priors を得る（この評価も1訪問として逆伝播しておく）
+        value = _expand_evaluate(root, evaluator, rng, fallback)
+        root.n += 1
+        root.w += value
+    k = len(root.priors)
+    if k <= 1:
+        return
+    alpha = 10.0 / k
+    noise = [rng.gammavariate(alpha, 1.0) for _ in range(k)]
+    total = sum(noise) or 1.0
+    root.priors = [
+        (1.0 - eps) * p + eps * (g / total) for p, g in zip(root.priors, noise)
+    ]
+
+
 def aggregate_visits(
     obs: Observation,
     my_deck: list[int],
@@ -195,11 +226,13 @@ def aggregate_visits(
     c_puct: float,
     fallback: Agent,
     opp_pool: list[list[int]] | None = None,
+    root_noise_eps: float = 0.0,
 ) -> dict[tuple[int, ...], int]:
     """determinization 横断で PUCT を回し、根の行動別訪問数を集計して返す.
 
     返り値のキーは行動（option index のタプル）。self-play の方策ターゲット π や
     エージェントの行動選択に使う。opp_pool 指定時は相手デッキを観測整合で推定する。
+    root_noise_eps>0 で根に Dirichlet ノイズ（self-play 収集の多様性確保・推論では 0）。
     """
     visits: dict[tuple[int, ...], int] = {}
     for _ in range(n_determinizations):
@@ -219,6 +252,8 @@ def aggregate_visits(
         except (ValueError, IndexError):
             continue
         root = _Node(root_state, obs.current.yourIndex)
+        if root_noise_eps > 0:
+            _apply_root_noise(root, root_noise_eps, evaluator, rng, fallback)
         sims = max(1, n_simulations // n_determinizations)
         for _ in range(sims):
             _simulate(root, c_puct, evaluator, rng, fallback)

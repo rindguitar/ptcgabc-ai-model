@@ -140,6 +140,27 @@ def main() -> None:
         "soft は teacher を深くした時=TB↑/sims↑ でのみ有効）",
     )
     p.add_argument(
+        "--collect-sims",
+        type=int,
+        default=0,
+        help="self-play **収集時**の1手 MCTS 反復（0=--sims と同じ）。improve の学習信号は"
+        "「探索後の π が素の policy よりどれだけ賢いか」の差分なので、収集だけ深くすると"
+        "教師の質が上がる（eval/推論の深さは --sims のまま）",
+    )
+    p.add_argument(
+        "--collect-dets",
+        type=int,
+        default=0,
+        help="self-play 収集時の determinization 数（0=--dets と同じ）",
+    )
+    p.add_argument(
+        "--root-noise",
+        type=float,
+        default=0.25,
+        help="self-play 収集の根 Dirichlet ノイズ ε（AlphaZero 標準 0.25・0 で無効）。"
+        "探索が毎回同じ手に固まるのを防ぎデータの多様性を保つ（eval/推論には掛からない）",
+    )
+    p.add_argument(
         "--buffer", type=int, default=20, help="リプレイバッファに保持する直近反復数"
     )
     p.add_argument(
@@ -280,6 +301,7 @@ def main() -> None:
         elif args.workers and args.workers > 1:
             # 並列 self-play: 現ネットを一時保存し、各 worker が CPU で読み込んで収集する
             # （NN-MCTS は batch=1 推論＋cgエンジン＝CPU寄り。CPU 並列で試行数をコア数倍に）。
+            # 収集は --collect-sims/--collect-dets（0 なら --sims/--dets）＝データの質を独立制御。
             snap = args.out + ".snap"
             save_net(net, snap)
             from nn_collect import generate_samples_parallel
@@ -290,8 +312,9 @@ def main() -> None:
                 args.games,
                 rng,
                 args.workers,
-                n_simulations=args.sims,
-                n_determinizations=args.dets,
+                n_simulations=args.collect_sims or args.sims,
+                n_determinizations=args.collect_dets or args.dets,
+                root_noise_eps=args.root_noise,
             )
         else:
             evaluator = make_net_evaluator(net, meta, device)
@@ -301,8 +324,9 @@ def main() -> None:
                 evaluator,
                 args.games,
                 rng,
-                n_simulations=args.sims,
-                n_determinizations=args.dets,
+                n_simulations=args.collect_sims or args.sims,
+                n_determinizations=args.collect_dets or args.dets,
+                root_noise_eps=args.root_noise,
             )
         buffer.append(new_samples)
         train_data = [s for lst in buffer for s in lst]  # バッファ全体で学習
