@@ -219,6 +219,21 @@ submission: ## 提出パッケージ models/submission.tar.gz を作成（champi
 	else echo "同梱デッキ（最良）: $$deck"; fi; \
 	$(PY) scripts/build_submission.py --deck $$deck
 
+# NN 操縦（floored NN-MCTS）の提出。net は最良（improve_best > distill_best）を自動選択。
+# 提出前に make smoke-submission で 600 秒クロックに収まるか実測すること（issue #4）。
+SUBMISSION_NET ?= $(firstword $(wildcard models/pvnet_improve_best.pt) models/pvnet_distill_best.pt)
+submission-nn: ## NN操縦の提出パッケージ models/submission_nn.tar.gz（floored NN＋最良net）
+	@deck=models/champion_best.csv; \
+	if [ ! -f "$$deck" ]; then deck=models/champion_deck.csv; \
+		echo "champion_best.csv 未作成→ $$deck を同梱（先に ratchet 推奨）"; \
+	else echo "同梱デッキ（最良）: $$deck"; fi; \
+	echo "同梱ネット: $(SUBMISSION_NET)"; \
+	$(PY) scripts/build_submission.py --deck $$deck --policy nn --net $(SUBMISSION_NET) \
+		--out models/submission_nn.tar.gz
+
+smoke-submission: ## 提出エージェントの煙テスト＋時間計測（600秒検証・NN は Docker）
+	$(RUN) python scripts/smoke_submission.py --policy nn --net $(SUBMISSION_NET) $(SMOKE_ARGS)
+
 # === Docker 実行（重い作業 / GPU = Phase 3） ===============================
 # build は数分〜10 分以上かかるため、原則ユーザーが手動実行する（CLAUDE.md 参照）。
 build: ## Docker イメージをビルド（時間がかかる）

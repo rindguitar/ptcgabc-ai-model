@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import random
+import time
 from typing import Callable
 
 from cards import load_card_meta
@@ -23,12 +24,18 @@ from cg.api import to_observation_class
 DECK_SIZE = 60
 
 
-def _read_deck_csv(path: str) -> list[int]:
-    """deck CSV を読む。ローカルに無ければ Kaggle 提出パスにフォールバック."""
+def _resolve_path(path: str) -> str:
+    """ローカルに無ければ Kaggle 提出パス(/kaggle_simulations/agent/)にフォールバック."""
     if not os.path.exists(path):
         alt = "/kaggle_simulations/agent/" + os.path.basename(path)
         if os.path.exists(alt):
-            path = alt
+            return alt
+    return path
+
+
+def _read_deck_csv(path: str) -> list[int]:
+    """deck CSV を読む。ローカルに無ければ Kaggle 提出パスにフォールバック."""
+    path = _resolve_path(path)
     with open(path) as f:
         ids = [int(line) for line in f.read().splitlines() if line.strip()]
     if len(ids) != DECK_SIZE:
@@ -70,7 +77,7 @@ def make_kaggle_agent(
     """公式形式 `agent(obs_dict) -> list[int]` を返す.
 
     Args:
-        policy: "ismcts" / "heuristic" / "random"。
+        policy: "ismcts" / "nn"（floored NN-MCTS・要 torch＋net_path）/ "heuristic" / "random"。
         deck: 自分のデッキ（None なら deck_path から読む）。
         opp_deck: 相手デッキの事前分布（None なら deck を流用）。
         opp_pool_dir: 相手候補デッキ群のディレクトリ（指定すると観測整合で相手デッキを推定）。
@@ -102,6 +109,43 @@ def make_kaggle_agent(
             opp_pool=opp_pool,
             **policy_kwargs,
         )
+    elif policy == "nn":
+        # floored NN-MCTS（PUCT＋接地 floor＝pilot≥heuristic 保証）。torch は nn 選択時のみ
+        # import（ismcts/heuristic 提出では torch 不要のまま）。batch=1 推論は CPU が速く
+        # 提出環境の GPU 有無にも依存しないため、常に CPU で読む。
+        from agents import make_heuristic_agent
+        from nn_eval import make_net_evaluator
+        from nn_mcts import make_nn_mcts_agent
+        from train import load_net
+
+        net_path = _resolve_path(policy_kwargs.pop("net_path", "pvnet.pt"))
+        net = load_net(net_path, "cpu")
+        net.eval()
+        evaluator = make_net_evaluator(net, meta, "cpu")
+        inner_nn = make_nn_mcts_agent(
+            meta,
+            deck,
+            opp_deck,
+            evaluator=evaluator,
+            n_simulations=policy_kwargs.pop("n_simulations", 64),
+            n_determinizations=policy_kwargs.pop("n_determinizations", 2),
+            floor_rollouts=policy_kwargs.pop("floor_rollouts", 8),
+            opp_pool=opp_pool,
+            **policy_kwargs,
+        )
+        # 時間ガード: NN-MCTS は sims 固定で ISMCTS のような自前の時計を持たない。
+        # 累積消費が game_budget を超えたら heuristic（瞬時）へ退避し、600秒クロック
+        # 超過（時間切れ負け）を防ぐ。通常は 1手 ~0.1秒 × 数百手 << 540秒で発動しない保険。
+        heuristic_fb = make_heuristic_agent(meta)
+        spent = [0.0]
+
+        def inner(obs, inner_rng):
+            if game_budget is not None and spent[0] >= game_budget:
+                return heuristic_fb(obs, inner_rng)
+            t0 = time.perf_counter()
+            act = inner_nn(obs, inner_rng)
+            spent[0] += time.perf_counter() - t0
+            return act
     else:
         raise ValueError(f"未知の policy: {policy}")
 
