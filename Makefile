@@ -121,10 +121,10 @@ IMPROVE_OUT   ?= models/pvnet_improve.pt
 IMPROVE_BEST  ?= models/pvnet_improve_best.pt
 IMPROVE_SEED  ?= models/pvnet_distill_best.pt
 IMPROVE_ITERS ?= 40
-# 収集時だけ探索を深くする（改善オペレータ強化・2026-07 改修）。sims=64 収集の 90iters が
-# 種を超えられず横ばいだった対策: 収集の探索を深くして「探索後 π と素 policy の差分」＝学習
-# 信号を太らせる。eval/推論の深さは NN_SIMS(64) のまま。iter は重くなる（質＞回数の賭け）。
-IMPROVE_COLLECT_SIMS ?= 128
+# 収集時の探索深度（--sims と独立に制御可能）。当初 128（深い収集=質の賭け）を予定したが、
+# 実測で sims32(0.575)≈sims64(0.500)＝**深さの効果はこの net では 32 で頭打ち**と判明し 64 に。
+# 深さでなく value の質が律速。深い収集は net が強くなって曲線が立ってきたら再検討。
+IMPROVE_COLLECT_SIMS ?= 64
 IMPROVE_ARGS  ?=
 improve: ## self-playでISMCTS超えを狙う（蒸留種・深い収集＋根ノイズ・EMA・best保存・drift安全弁）
 	$(RUN) python scripts/train_alphazero.py --teacher selfplay --resume --resume-from-best \
