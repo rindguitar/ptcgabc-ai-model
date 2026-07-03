@@ -159,10 +159,32 @@
 - **教訓**: self-play は回せば強くなるのではなく、**「探索が素の方策より賢い」条件が崩れると空転する**。
   空転の兆候は eval_winrate の横ばい（loss は下がり続けるので当てにならない・[§17](#17-best-選抜はloss-最小でなくeval-勝率で行う)）。
 
-## 現在地と次の判断（2026-07-02）
-- **到達点**: floor 付き NN pilot が初めて **ISMCTS を安定超え**（vs ISMCTS **0.600** / vs heuristic **0.575**・
-  40試合）。floor の底上げ（純 heuristic なら対 ISMCTS≈0.30）を大きく上回る＝**NN 自体が寄与**。
-  **ISMCTS 操縦の提出チェックポイントを Kaggle にアップロード済**（improve 前に「今の強さ」を確定）。
+## 19. 提出操縦の NN 対応（issue #4・floored NN-MCTS＋時間ガード）
+- **背景**: 提出アダプタは ISMCTS/heuristic/random のみ対応だった。floored NN が ISMCTS を超えたので、
+  提出操縦も NN 化して実戦成績に反映する（[design 11](#11-提出物には操縦も含まれる)）。
+- **判断**: improve の成否に関わらず**一度だけ実装**（現 floored NN が既に ISMCTS 超えのため作る価値がある）。
+  - `make_kaggle_agent("nn")`＝**floored NN-MCTS**（[design 15](#15-接地-floornet-非依存で-pilot--heuristic-を保証)）。
+  - **torch は nn 選択時のみ遅延 import**（ismcts/heuristic 提出は torch 不要のまま）。net は常に **CPU** 読み
+    （batch=1 は CPU が速く、提出環境の GPU 有無に非依存）。
+  - **時間ガード**: NN-MCTS は sims 固定で自前の時計を持たないため、累積消費が game_budget(540s) を超えたら
+    heuristic（瞬時）へ退避＝**600秒クロックの時間切れ負けを防ぐ保険**（[glossary: 提出の時間管理](glossary.md#提出の時間管理game-budget--時間ガード--600秒クロック)）。
+  - `make submission-nn`（最良 net = improve_best>distill_best 自動選択）・`make smoke-submission`（実対戦で
+    時間実測）。NN 系モジュールは常に同梱（遅延 import なので ismcts 提出でも無害）。
+- **注意**: 提出環境の CPU はローカルより遅い可能性。煙テストで 2倍以上の余裕を確認してから提出する。
+
+## 現在地と次の判断（2026-07-04）
+- **到達点（NN 提出まで到達）**: improve 改修（Dirichlet 根ノイズ＋fresh 種）で self-play が**初めて機能**し、
+  floored NN が **vs heuristic 0.700（種 0.600 超え）/ vs ISMCTS 0.550**。**この NN 操縦の提出物を Kaggle に
+  アップロード済**（ISMCTS 提出と2枠で A/B 比較中）。煙テストは最悪 0.4s ≪ 540s で時間余裕は十分。
+- **improve は現構成でプラトー**: 追加 60 iters で eval 0.52 前後の横ばい→終盤下降（[§18](#18-improve-改修深い収集dirichlet-根ノイズ-横ばいの対策)）。
+  種は超えたが ISMCTS を明確に上回るには至らず。**深さ実験で「探索深度は sims32 で飽和＝律速は value の質」**と判明。
+- **原因究明の遷移（学びの本筋）**: policy が学べない真因を段階的に切り分け＝①弱教師説→②one-hot 雑音説（soft-π）→
+  ③**net の過大容量**（右サイズで解決）→ improve は④**自己蒸留の空転**（根ノイズ＋fresh 種で緩和）。
+  対策が毎回正反対なので、**診断（教師自己一致率・教師再現度・集中度）で切り分けてから動く**のが要。
+- **次の判断（Kaggle 実戦成績を待つ・数日）**:
+  1. **A/B の答え合わせ**: floored NN 提出 vs ISMCTS 提出の実順位で、ローカル eval と実戦の乖離を較正（issue #3）。
+  2. **ratchet-nn**: improve_best（強い NN）で探索の質を上げデッキをもう一巡。
+  3. **improve の次の一手は「value の質」が本丸**（深さ実験の示唆）。着手するなら別途 設計提案（新規なので要説明）。
 - **原因究明の遷移（重要な学び）**: 「policy_loss>1・手の良し悪しが学べない」の真因を段階的に切り分けた。
   1. **弱教師説**（DISTILL_TB=0.25 は heuristic 未満）→ TB=0.5 に上げたが素 net は伸びず（教師だけが主因ではなかった）。
   2. **one-hot ラベル雑音説（soft-π）** → 診断の**教師自己一致率 0.85（高）**で否定（教師は決定的＝雑音小）。
