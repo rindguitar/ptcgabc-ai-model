@@ -164,24 +164,32 @@ GAUNTLET_N ?= 16
 gauntlet-real: ## 実メタ（replay抽出）で判定ガントレットを置換（遭遇頻度上位 GAUNTLET_N 件）
 	$(PY) scripts/gauntlet_from_replays.py --n $(GAUNTLET_N)
 
-# デッキ強さの確定評価（vs 相手プール・ISMCTS操縦・多めの試合）。league内部の小サンプル(6試合)では
-# 判定できない「本当にデッキが強くなったか」を測る。ホスト(CPU)。champions/ のバックアップと比較可。
+# === 判定操縦（提出と同じ floored NN に統一・2026-07-05） ====================
+# 提出操縦が floored NN になった以上、デッキの判定（gate/eval-deck）も同じ操縦で行う
+# （ISMCTS 判定のままだと「ISMCTS が使いやすいデッキ」を選び続ける）。torch が要るため
+# Docker($(RUN)) 実行。ISMCTS 判定に戻すには JUDGE_FLAGS="--pilot ismcts --time-budget 0.05"。
+JUDGE_FLOOR ?= 8
+JUDGE_FLAGS ?= --pilot nn --net $(NN_NET) --nn-sims $(NN_SIMS) --floor-rollouts $(JUDGE_FLOOR)
+
+# デッキ強さの確定評価（vs 相手プール・floored NN 判定・多めの試合）。league内部の小サンプル
+# (6試合)では判定できない「本当にデッキが強くなったか」を測る。champions/ のバックアップと比較可。
 # 既定は champion_best（＝提出に使う最良）を優先。champion_deck は ratchet 後は棄却候補のことが
 # あり誤読を招くため。別デッキを測るなら make eval-deck EVAL_DECK=models/champions/champ_XXXX.csv。
 EVAL_DECK       ?= $(firstword $(wildcard models/champion_best.csv) models/champion_deck.csv)
 # 相手が gauntlet(16デッキ)なら 20試合でも合計十分（平均は安定・最悪は相手数で網羅）。厳密化は ↑。
 EVAL_DECK_GAMES ?= 20
 EVAL_DECK_ARGS  ?=
-eval-deck: ## デッキ強さの確定評価（vs 相手プール・ISMCTS・既定 champion・ホスト）
-	$(PY) scripts/eval_deck.py --deck $(EVAL_DECK) --games $(EVAL_DECK_GAMES) $(EVAL_DECK_ARGS)
+eval-deck: ## デッキ強さの確定評価（vs 相手プール・floored NN 判定・既定 champion・Docker）
+	$(RUN) python scripts/eval_deck.py --deck $(EVAL_DECK) --games $(EVAL_DECK_GAMES) \
+		$(JUDGE_FLAGS) $(EVAL_DECK_ARGS)
 
 # 信頼ラチェット: league 後に挟むと、新チャンピオンが best を信頼試合数で上回った時だけ昇格。
 # ノイズドリフトを止め、回し続けるほど models/champion_best.csv が単調に良くなる。提出は best を使う。
 # 相手が gauntlet(16)なら 20試合で合計十分。厳密に見たいときは GATE_GAMES=40。
 GATE_GAMES ?= 20
 GATE_ARGS  ?=
-champion-gate: ## league 後の keep-best 判定（新が best を上回った時だけ昇格・ホスト）
-	$(PY) scripts/champion_gate.py --games $(GATE_GAMES) $(GATE_ARGS)
+champion-gate: ## league 後の keep-best 判定（floored NN 判定・新が best を超えた時だけ昇格・Docker）
+	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(JUDGE_FLAGS) $(GATE_ARGS)
 
 # デッキ探索→ゲートを1サイクル（best起点・確実改善だけ採用）。回すほど champion_best が単調改善。
 # 探索(league)は速い5メタ・判定(gate)は多様 gauntlet。RATCHET_ITERS で時間調整
@@ -195,16 +203,15 @@ ratchet: ## デッキ探索→ゲート1サイクル（best起点／時短: RATC
 	$(PY) src/league.py --cap 12 --iters $(RATCHET_ITERS) --games 4 --pop 6 --gens 3 \
 		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) \
 		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-	$(PY) scripts/champion_gate.py --games 20 --time-budget 0.05 $(GATE_ARGS)
+	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(JUDGE_FLAGS) $(GATE_ARGS)
 	@echo "ratchet 完了。最良は models/champion_best.csv（提出はこれを使う）"
 
 ratchet-overnight: ## 一晩版 ratchet（探索を多め iters20・約6h・翌朝 eval-deck で確認）
 	$(MAKE) ratchet RATCHET_ITERS=20
 
 # NN 操縦版の ratchet（Docker/GPU）。探索(league)を蒸留 NN-MCTS で回す＝ISMCTS の ~1/4 時間で
-# 同等強度＝同じ時間で「より多く探索」できる。判定(gate)は独立性のため ISMCTS のまま（ホスト/CPU）。
-# distill で NN を強くしてから回すほど探索の質が上がる（distill↔ratchet-nn を交互に）。
-ratchet-nn: ## NN操縦の高速 ratchet（探索=蒸留NN-MCTS・Docker／判定=ISMCTS・ホスト）
+# 同等強度＝同じ時間で「より多く探索」できる。判定(gate)も floored NN（提出と同じ操縦）に統一。
+ratchet-nn: ## NN操縦の ratchet（探索=NN-MCTS／判定=floored NN・Docker）
 	@if [ -f models/champion_best.csv ]; then \
 		cp models/champion_best.csv models/champion_deck.csv; \
 		echo "起点を champion_best に設定（best から探索）"; \
@@ -212,7 +219,7 @@ ratchet-nn: ## NN操縦の高速 ratchet（探索=蒸留NN-MCTS・Docker／判�
 	$(RUN) python src/league.py --cap 12 --iters $(RATCHET_ITERS) --games 4 --pop 6 --gens 3 \
 		--plateau 99 --seed $(LEAGUE_SEED) --pilot nn --net $(NN_NET) --nn-sims $(NN_SIMS) \
 		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-	$(PY) scripts/champion_gate.py --games 20 --time-budget 0.05 $(GATE_ARGS)
+	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(JUDGE_FLAGS) $(GATE_ARGS)
 	@echo "ratchet-nn 完了。最良は models/champion_best.csv（提出はこれを使う）"
 
 # === 提出 ==================================================================

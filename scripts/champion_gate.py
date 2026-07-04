@@ -59,6 +59,12 @@ def main() -> None:
     p.add_argument(
         "--nn-sims", type=int, default=64, help="pilot=nn の1手あたり MCTS 反復数"
     )
+    p.add_argument(
+        "--floor-rollouts",
+        type=int,
+        default=8,
+        help="pilot=nn の接地 floor rollout 数（提出と同じ操縦で判定・0 で無効）",
+    )
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
         "--margin",
@@ -95,6 +101,7 @@ def main() -> None:
         args.time_budget,
         net=args.net,
         nn_sims=args.nn_sims,
+        floor_rollouts=args.floor_rollouts,
     )
     best_res = eval_deck_vs_meta(
         best_deck,
@@ -106,6 +113,7 @@ def main() -> None:
         args.time_budget,
         net=args.net,
         nn_sims=args.nn_sims,
+        floor_rollouts=args.floor_rollouts,
     )
     print(f"new : 最悪={new_res['worst']:.3f} 平均={new_res['mean']:.3f}")
     print(f"best: 最悪={best_res['worst']:.3f} 平均={best_res['mean']:.3f}")

@@ -37,11 +37,13 @@ def eval_deck_vs_meta(
     time_budget=0.1,
     net="models/pvnet_distill_best.pt",
     nn_sims=64,
+    floor_rollouts=0,
 ) -> dict:
     """deck を opps（メタ群）に対し評価し per_opp/最悪/平均を返す（gate からも使う）.
 
     pilot: ismcts（特性対応・遅い）/ nn（蒸留NN-MCTS・ISMCTS同等を高速・要 torch）/
     heuristic（速いが特性/効果を使わない）。
+    floor_rollouts>0 は nn に接地 floor を付ける＝**提出（floored NN）と同じ操縦で判定**する。
     """
     if pilot == "nn":
         # 蒸留 NN-MCTS：ISMCTS 同等の強さを ~1/4 時間で（torch/GPU・要 Docker）
@@ -63,6 +65,7 @@ def eval_deck_vs_meta(
                 evaluator=_ev,
                 n_simulations=nn_sims,
                 n_determinizations=2,
+                floor_rollouts=floor_rollouts,
             )
 
         rates = [
@@ -119,6 +122,12 @@ def main() -> None:
     p.add_argument(
         "--nn-sims", type=int, default=64, help="pilot=nn の1手あたり MCTS 反復数"
     )
+    p.add_argument(
+        "--floor-rollouts",
+        type=int,
+        default=8,
+        help="pilot=nn の接地 floor rollout 数（提出と同じ操縦で判定・0 で無効）",
+    )
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
 
@@ -140,9 +149,15 @@ def main() -> None:
         args.time_budget,
         net=args.net,
         nn_sims=args.nn_sims,
+        floor_rollouts=args.floor_rollouts,
+    )
+    label = args.pilot + (
+        f"+floor{args.floor_rollouts}"
+        if args.pilot == "nn" and args.floor_rollouts > 0
+        else ""
     )
     print(
-        f"{args.deck} vs メタ{len(opps)}デッキ（{args.pilot}操縦・各{args.games}試合・席入替）:"
+        f"{args.deck} vs メタ{len(opps)}デッキ（{label}操縦・各{args.games}試合・席入替）:"
     )
     print(f"  per_opp = {[round(r, 3) for r in res['per_opp']]}")
     print(f"  最悪 = {res['worst']:.3f}  平均 = {res['mean']:.3f}")
