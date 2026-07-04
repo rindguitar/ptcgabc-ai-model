@@ -158,6 +158,12 @@ diagnose: ## NN policy 診断（shortcut度/教師再現度/文脈感度/集中�
 gauntlet: ## 多様な相手デッキ群 models/gauntlet/ を生成（メタ＋チャンピオン系＋全色mono-type）
 	$(PY) scripts/make_gauntlet.py
 
+# 実メタ較正: replay 抽出デッキ（analyze_replays.py が蓄積）で判定プールを置換。
+# レートが上がったら直近 replay を取り直して再実行＝ローリング較正（レート帯バイアス対策）。
+GAUNTLET_N ?= 16
+gauntlet-real: ## 実メタ（replay抽出）で判定ガントレットを置換（遭遇頻度上位 GAUNTLET_N 件）
+	$(PY) scripts/gauntlet_from_replays.py --n $(GAUNTLET_N)
+
 # デッキ強さの確定評価（vs 相手プール・ISMCTS操縦・多めの試合）。league内部の小サンプル(6試合)では
 # 判定できない「本当にデッキが強くなったか」を測る。ホスト(CPU)。champions/ のバックアップと比較可。
 # 既定は champion_best（＝提出に使う最良）を優先。champion_deck は ratchet 後は棄却候補のことが
