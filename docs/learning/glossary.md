@@ -261,6 +261,17 @@ GPU は**大きなバッチ**の行列計算が速い。MCTS は1局面ずつ（
 Kaggle/Pokémon が提供する対戦シミュレータ（Competition Data・追跡外）。`battle_*`（対戦進行）と
 `search_*`（フォワードモデル）の API を持つ。CPU・標準ライブラリだけで動く。
 
+### search API / search_begin_input
+エンジンの**フォワードモデル**（先読みシミュレーション）用 API。観測に入っている
+`search_begin_input`（~270字のシリアライズ文字列）を `search_begin()` に渡すと、**今の局面を開始点に
+した模擬対戦セッション**が開き、`search_step()` で手を進められる。ISMCTS/NN-MCTS の探索はこれで動く。
+**相手の ID などではない**（探索用のチケット）。→ [replay-format.md](replay-format.md)
+
+### episode / replay（kaggle_environments）
+Kaggle 上の1試合の完全な記録（JSON）。チーム名・勝敗・全ターンの観測/行動・残り持ち時間が入って
+おり、**相手の初手 action（60 カード ID）から相手デッキを復元**できる＝実メタ較正の材料。
+構造と読み方は [replay-format.md](replay-format.md)、抽出は [analyze_replays.py](../../scripts/analyze_replays.py)。
+
 ### pilot（操縦）
 デッキを実際に「どう戦わせるか」のエージェント。`heuristic`（速いが特性/効果を使わない）/ `ismcts`
 （強いが遅い）/ `nn`（蒸留/improve した NN-MCTS）。**提出物は操縦込み**（デッキだけではない）。

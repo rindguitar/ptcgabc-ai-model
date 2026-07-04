@@ -15,6 +15,7 @@
 | [glossary.md](glossary.md) | 用語集（MCTS / ISMCTS / AlphaZero / 蒸留 / 過学習 / 並列化 など） |
 | [architecture.md](architecture.md) | コード構造（`src/` 各モジュールの役割と関係） |
 | [design-decisions.md](design-decisions.md) | 設計判断の理由（なぜ ISMCTS 操縦か・distill→improve・gauntlet など） |
+| [replay-format.md](replay-format.md) | Kaggle replay（episode JSON）の構造と読み方（相手デッキ抽出・時間検証） |
 
 ## ⚠️ 書いてよいこと / ダメなこと（規約）
 - **書いてよい**: 一般的な技術（MCTS, NN, Python）、自分のコード構造・設計判断・数値（勝率・loss）。
