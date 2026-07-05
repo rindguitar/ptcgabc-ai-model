@@ -21,17 +21,26 @@ from selfplay import Sample, as_deck_list, play_selfplay_game
 _W: dict = {}
 
 
-def _init(net_path: str, pool: list[list[int]], game_kwargs: dict) -> None:
-    """worker 初期化: meta とネット(CPU)・評価器・デッキプールを構築する."""
+def _init(
+    net_path: str, pool: list[list[int]], game_kwargs: dict, board_bonus: float = 0.0
+) -> None:
+    """worker 初期化: meta とネット(CPU)・評価器・デッキプールを構築する.
+
+    board_bonus>0 なら評価器に盤面補正を注入＝**盤面を読む探索**の訪問分布を収集し、
+    net に蒸留する（AlphaZero の償却）。value は明示特徴（v2.3）＋勝敗ラベルから回帰する。
+    """
     from cards import load_card_meta
-    from nn_eval import make_net_evaluator
+    from nn_eval import make_net_evaluator, wrap_board_bonus
     from train import load_net
 
     meta = load_card_meta()
     net = load_net(net_path, "cpu")
     net.eval()
+    evaluator = make_net_evaluator(net, meta, "cpu")
+    if board_bonus:
+        evaluator = wrap_board_bonus(evaluator, board_bonus)
     _W["meta"] = meta
-    _W["evaluator"] = make_net_evaluator(net, meta, "cpu")
+    _W["evaluator"] = evaluator
     _W["pool"] = pool
     _W["kwargs"] = game_kwargs
 
@@ -49,11 +58,13 @@ def generate_samples_parallel(
     n_games: int,
     rng: random.Random,
     n_workers: int,
+    board_bonus: float = 0.0,
     **game_kwargs,
 ) -> list[Sample]:
     """net_path のネットを CPU で読み込み、n_games の self-play を並列収集する.
 
     net_path: 現ネットを保存したファイル（各 worker が CPU で読み込む）。
+    board_bonus: 収集評価器への盤面補正 α（0 で無効・_init 参照）。
     game_kwargs: play_selfplay_game へ渡す（n_simulations / n_determinizations 等）。
     """
     pool = as_deck_list(decks)
@@ -64,7 +75,7 @@ def generate_samples_parallel(
         max_workers=n_workers,
         mp_context=ctx,
         initializer=_init,
-        initargs=(net_path, pool, game_kwargs),
+        initargs=(net_path, pool, game_kwargs, board_bonus),
     ) as ex:
         for game_samples in ex.map(_game, seeds):
             samples.extend(game_samples)

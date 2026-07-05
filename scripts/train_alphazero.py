@@ -31,7 +31,7 @@ from cards import load_card_meta  # noqa: E402
 from deck import load_deck  # noqa: E402
 from harness import evaluate  # noqa: E402
 from net import PVNet  # noqa: E402
-from nn_eval import make_net_evaluator  # noqa: E402
+from nn_eval import make_net_evaluator, wrap_board_bonus  # noqa: E402
 from nn_mcts import make_nn_mcts_agent  # noqa: E402
 from distill import generate_ismcts_samples  # noqa: E402
 from selfplay import generate_samples  # noqa: E402
@@ -159,6 +159,13 @@ def main() -> None:
         default=0.25,
         help="self-play 収集の根 Dirichlet ノイズ ε（AlphaZero 標準 0.25・0 で無効）。"
         "探索が毎回同じ手に固まるのを防ぎデータの多様性を保つ（eval/推論には掛からない）",
+    )
+    p.add_argument(
+        "--collect-board-bonus",
+        type=float,
+        default=0.0,
+        help="self-play 収集評価器への盤面補正 α（0 で無効。盤面を読む探索の訪問分布を"
+        "収集し net に蒸留する＝v2.3 の学習経路。提出と同じ 0.2 を推奨）",
     )
     p.add_argument(
         "--buffer", type=int, default=20, help="リプレイバッファに保持する直近反復数"
@@ -312,12 +319,15 @@ def main() -> None:
                 args.games,
                 rng,
                 args.workers,
+                board_bonus=args.collect_board_bonus,
                 n_simulations=args.collect_sims or args.sims,
                 n_determinizations=args.collect_dets or args.dets,
                 root_noise_eps=args.root_noise,
             )
         else:
             evaluator = make_net_evaluator(net, meta, device)
+            if args.collect_board_bonus:
+                evaluator = wrap_board_bonus(evaluator, args.collect_board_bonus)
             new_samples = generate_samples(
                 meta,
                 decks,

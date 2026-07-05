@@ -32,7 +32,7 @@ from cg.api import to_observation_class  # noqa: E402
 from deckopt import _load_pool  # noqa: E402
 from nn_eval import make_net_evaluator  # noqa: E402
 from nn_mcts import _MCTS_SELECT_TYPES  # noqa: E402
-from train import load_net  # noqa: E402
+from train import load_net, load_net_warmstart  # noqa: E402
 
 
 def _board(p) -> int:
@@ -62,9 +62,17 @@ def main() -> None:
     )
     decks = _load_pool(paths)[:4]
     rng = random.Random(args.seed)
+
+    def _load(path: str):
+        """旧特徴次元の net は warm-start（新列ゼロ埋め）で読む＝特徴拡張を跨いだ比較を可能に."""
+        try:
+            return load_net(path, device)
+        except RuntimeError:
+            return load_net_warmstart(path, device)
+
     evs = {
-        "A(旧)": make_net_evaluator(load_net(args.net_a, device), meta, device),
-        "B(新)": make_net_evaluator(load_net(args.net_b, device), meta, device),
+        "A(旧)": make_net_evaluator(_load(args.net_a), meta, device),
+        "B(新)": make_net_evaluator(_load(args.net_b), meta, device),
     }
     heuristic = make_heuristic_agent(meta)
 
