@@ -27,10 +27,15 @@ from deckopt import _load_pool, default_opponent_paths  # noqa: E402
 from eval_deck import eval_deck_vs_meta  # noqa: E402
 
 
-def _better(new: dict, best: dict, margin: float) -> bool:
-    """new が best より良いか。最悪ケース優先＋平均 tie-break。margin で僅差更新を防ぐ."""
+def _better(new: dict, best: dict, margin: float, mean_guard: float) -> bool:
+    """new が best より良いか。最悪ケース優先＋平均 tie-break。margin で僅差更新を防ぐ.
+
+    mean_guard: 最悪が勝っていても**平均が mean_guard 超で劣化していたら不採用**。
+    最悪(min-of-N)は最もノイズが乗る統計量なので、「最悪だけ僅差で勝ち・平均は明確に負け」
+    という上振れ昇格（実測: worst+0.05/mean−0.077 で誤昇格→40試合再戦で覆った）を弾く。
+    """
     if new["worst"] > best["worst"] + margin:
-        return True
+        return new["mean"] >= best["mean"] - mean_guard
     if new["worst"] < best["worst"] - margin:
         return False
     return new["mean"] > best["mean"] + margin  # 最悪が同程度なら平均で判定
@@ -72,6 +77,17 @@ def main() -> None:
         default=0.0,
         help="この差を超えないと更新しない（僅差の入れ替わり抑制）",
     )
+    p.add_argument(
+        "--mean-guard",
+        type=float,
+        default=0.05,
+        help="最悪が勝っても平均がこの幅を超えて劣化していたら昇格しない（上振れ昇格対策）",
+    )
+    p.add_argument(
+        "--no-confirm",
+        action="store_true",
+        help="確認評価（昇格候補を別シードで再評価）を省略する",
+    )
     args = p.parse_args()
 
     new_deck = load_deck(args.new)
@@ -91,38 +107,46 @@ def main() -> None:
         print("評価相手（メタ）が見つかりません")
         return
 
-    new_res = eval_deck_vs_meta(
-        new_deck,
-        meta,
-        opps,
-        random.Random(args.seed),
-        args.games,
-        args.pilot,
-        args.time_budget,
-        net=args.net,
-        nn_sims=args.nn_sims,
-        floor_rollouts=args.floor_rollouts,
-    )
-    best_res = eval_deck_vs_meta(
-        best_deck,
-        meta,
-        opps,
-        random.Random(args.seed),
-        args.games,
-        args.pilot,
-        args.time_budget,
-        net=args.net,
-        nn_sims=args.nn_sims,
-        floor_rollouts=args.floor_rollouts,
-    )
+    def eval_pair(seed: int) -> tuple[dict, dict]:
+        """同一シード（同一相手条件）で new / best を対で評価する."""
+        results = []
+        for d in (new_deck, best_deck):
+            results.append(
+                eval_deck_vs_meta(
+                    d,
+                    meta,
+                    opps,
+                    random.Random(seed),
+                    args.games,
+                    args.pilot,
+                    args.time_budget,
+                    net=args.net,
+                    nn_sims=args.nn_sims,
+                    floor_rollouts=args.floor_rollouts,
+                )
+            )
+        return results[0], results[1]
+
+    new_res, best_res = eval_pair(args.seed)
     print(f"new : 最悪={new_res['worst']:.3f} 平均={new_res['mean']:.3f}")
     print(f"best: 最悪={best_res['worst']:.3f} 平均={best_res['mean']:.3f}")
 
-    if _better(new_res, best_res, args.margin):
-        shutil.copyfile(args.new, args.best)
-        print(f"→ 更新: new が上回ったので {args.best} を置換（ラチェット前進）")
-    else:
+    if not _better(new_res, best_res, args.margin, args.mean_guard):
         print("→ 据え置き: new は best を上回らず（ノイズドリフトを阻止）")
+        return
+
+    # 確認評価: 昇格候補が出た時だけ**別シードで再評価**し、両方勝った時のみ昇格する
+    # （train の best 選抜と同じ思想。最悪(min-of-N)の上振れ1回で best を壊さない）。
+    if not args.no_confirm:
+        new2, best2 = eval_pair(args.seed + 777)
+        print(f"確認 new : 最悪={new2['worst']:.3f} 平均={new2['mean']:.3f}")
+        print(f"確認 best: 最悪={best2['worst']:.3f} 平均={best2['mean']:.3f}")
+        if not _better(new2, best2, args.margin, args.mean_guard):
+            print("→ 据え置き: 確認評価で再現せず（上振れ昇格を阻止）")
+            return
+
+    shutil.copyfile(args.new, args.best)
+    print(f"→ 更新: new が上回ったので {args.best} を置換（ラチェット前進）")
 
 
 if __name__ == "__main__":
