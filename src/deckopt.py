@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import glob
 import random
+from collections import Counter
 import sys
 
 from agents import Agent, make_heuristic_agent
@@ -24,6 +25,7 @@ from deck import (
     is_legal,
     load_deck,
     mutate,
+    repair_composition,
     random_legal_deck,
     save_deck,
     structured_deck,
@@ -82,6 +84,7 @@ def _make_child(
     max_swaps: int,
     explore_frac: float,
     meta: CardMeta | None = None,
+    staple_freq: "Counter[int] | None" = None,
 ) -> list[int]:
     """子デッキを生成する.
 
@@ -92,10 +95,19 @@ def _make_child(
     """
     if explore_frac > 0 and rng.random() < explore_frac:
         if meta is not None:
-            return structured_deck(rng.choice(base), meta, rng)
-        return random_legal_deck(rng.choice(base), rng, swaps=max(20, max_swaps * 5))
-    n = rng.randint(1, max_swaps) if max_swaps > 1 else mutations_per_child
-    return _mutate_n(rng.choice(parents), ref_deck, rng, n)
+            child = structured_deck(rng.choice(base), meta, rng)
+        else:
+            child = random_legal_deck(
+                rng.choice(base), rng, swaps=max(20, max_swaps * 5)
+            )
+    else:
+        n = rng.randint(1, max_swaps) if max_swaps > 1 else mutations_per_child
+        child = _mutate_n(rng.choice(parents), ref_deck, rng, n)
+    # 構成射影: 実メタ帯（COMP_BOUNDS）の外に出た候補を矯正する（帯内は無変更）。
+    # 「エネ33・グッズ5」級の外れ値へ収束する事故の再発防止（デッキ探索の新基準）。
+    if meta is not None and staple_freq:
+        child = repair_composition(child, meta, staple_freq)
+    return child
 
 
 def evolve(
@@ -130,6 +142,7 @@ def evolve(
     agent = agent or make_heuristic_agent(meta)
     ref_deck = ref_deck or pool[0]
     base = seeds or list(pool)
+    staple_freq = load_staple_freq()  # 構成射影の補充プール（実メタ採用頻度）
 
     # 初期集団: シードから変異＋多様性注入で散らす
     population = [
@@ -142,6 +155,7 @@ def evolve(
             max_swaps,
             explore_frac,
             meta,
+            staple_freq,
         )
         for _ in range(pop_size)
     ]
@@ -183,10 +197,31 @@ def evolve(
                     max_swaps,
                     explore_frac,
                     meta,
+                    staple_freq,
                 )
             )
 
     return {"deck": best_deck, "fitness": best_fit, "history": history}
+
+
+def load_staple_freq() -> "Counter[int]":
+    """実メタ（replay 抽出）デッキ群の採用頻度を数える（構成射影の補充プール）.
+
+    data/replays/opp_decks/ が無ければ data/*.csv（公式メタ）にフォールバック。
+    頻度＝「何デッキが採用しているか」で、実環境で選ばれている汎用札の代理指標。
+    """
+    freq: Counter[int] = Counter()
+    paths = sorted(glob.glob("data/replays/opp_decks/*.csv")) or sorted(
+        glob.glob("data/*.csv")
+    )
+    for p in paths:
+        try:
+            ids = {int(x) for x in open(p).read().split()}
+        except ValueError:
+            continue
+        if len([*ids]) > 0:
+            freq.update(ids)
+    return freq
 
 
 def default_opponent_paths() -> list[str]:

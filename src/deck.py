@@ -179,3 +179,139 @@ def composition(deck: list[int], meta: CardMeta) -> dict[str, int]:
         "special_energy": counts.get(CardType.SPECIAL_ENERGY, 0),
         "unique": len(set(deck)),
     }
+
+
+# --- 構成の射影（実メタ分布の範囲へ矯正・2026-07-06） --------------------------
+# league が「エネ33・グッズ5」のような実メタ外れ値に収束した事故（heuristic ロールアウトが
+# トレーナー不使用＝グッズ価値を過小評価する近親交配の歪み）の再発防止。候補デッキを
+# カテゴリ枚数の許容帯へ射影する。帯は実メタ70デッキの平均±の緩い範囲＝帯内は自由探索。
+COMP_BOUNDS: dict[str, tuple[int, int]] = {
+    "poke": (12, 18),
+    "item": (10, 17),
+    "sup": (8, 14),
+    "stad": (0, 3),
+    "tool": (0, 3),
+    "ene": (12, 20),
+}
+
+
+def card_category(meta: CardMeta, cid: int) -> str:
+    """cardId → 構成カテゴリ（poke/item/sup/stad/tool/ene/other）."""
+    t = meta.card_type.get(cid)
+    if t == CardType.POKEMON:
+        return "poke"
+    if t == CardType.ITEM:
+        return "item"
+    if t == CardType.SUPPORTER:
+        return "sup"
+    if t == CardType.STADIUM:
+        return "stad"
+    if t == CardType.TOOL:
+        return "tool"
+    if t in (CardType.BASIC_ENERGY, CardType.SPECIAL_ENERGY):
+        return "ene"
+    return "other"
+
+
+def repair_composition(
+    deck: list[int],
+    meta: CardMeta,
+    staple_freq: Counter,
+    bounds: dict[str, tuple[int, int]] | None = None,
+) -> list[int]:
+    """デッキをカテゴリ枚数の許容帯へ射影する（帯内なら無変更）.
+
+    - 超過カテゴリ: 同一 cardId の多いものから削る（種類は温存）。
+    - 不足カテゴリ: ポケモンは自前たねの増量優先（タイプ整合維持）→実メタ頻度上位のたね、
+      トレーナー/エネは staple_freq（実メタ採用頻度）上位から。4枚制限・aceSpec 1枚を遵守。
+    - 射影後にエンジン受理（is_legal）を確認し、失敗時は**元のデッキを返す**（安全退化）。
+    """
+    bounds = bounds or COMP_BOUNDS
+    counts = Counter(deck)
+
+    def cat_count(cat: str) -> int:
+        return sum(n for c, n in counts.items() if card_category(meta, c) == cat)
+
+    def n_ace() -> int:  # トレーナーの is_special ≒ aceSpec（デッキ1枚制限）
+        return sum(
+            n
+            for c, n in counts.items()
+            if meta.is_special.get(c, False) and card_category(meta, c) != "poke"
+        )
+
+    def addable(cid: int) -> bool:
+        cat = card_category(meta, cid)
+        if cat == "ene" and cid in meta.basic_energy_id.values():
+            return True  # 基本エネは枚数無制限
+        if counts.get(cid, 0) >= 4:
+            return False
+        if cat != "poke" and meta.is_special.get(cid, False) and n_ace() >= 1:
+            return False
+        return True
+
+    changed = False
+    # 1. 超過を上限まで削る
+    for cat, (_, hi) in bounds.items():
+        while cat_count(cat) > hi:
+            cands = [(n, c) for c, n in counts.items() if card_category(meta, c) == cat]
+            _, drop = max(cands)
+            counts[drop] -= 1
+            if counts[drop] == 0:
+                del counts[drop]
+            changed = True
+
+    # 2. 不足を下限まで補充（60 枚の範囲で）
+    def fill(cat: str, lo: int, pool: list[int]) -> None:
+        nonlocal changed
+        i = 0
+        while cat_count(cat) < lo and sum(counts.values()) < DECK_SIZE:
+            while i < len(pool) and not addable(pool[i]):
+                i += 1
+            if i >= len(pool):
+                break
+            counts[pool[i]] += 1
+            changed = True
+
+    own_basics = sorted(
+        (
+            c
+            for c in counts
+            if card_category(meta, c) == "poke"
+            and meta.card_type.get(c) == CardType.POKEMON
+            and meta.is_basic.get(c, False)
+        ),
+        key=lambda c: -staple_freq.get(c, 0),
+    )
+    staple_by_cat = {
+        cat: [c for c, _ in staple_freq.most_common() if card_category(meta, c) == cat]
+        for cat in bounds
+    }
+    fill(
+        "poke",
+        bounds["poke"][0],
+        own_basics * 4
+        + [c for c in staple_by_cat["poke"] if meta.is_basic.get(c, False)],
+    )
+    for cat in ("item", "sup", "tool", "stad", "ene"):
+        fill(cat, bounds[cat][0], staple_by_cat[cat])
+
+    # 3. 60 枚に満たなければグッズ/サポ頻度上位で充填
+    filler = [
+        c
+        for c, _ in staple_freq.most_common()
+        if card_category(meta, c) in ("item", "sup")
+    ]
+    i = 0
+    while sum(counts.values()) < DECK_SIZE and i < len(filler):
+        if addable(filler[i]):
+            counts[filler[i]] += 1
+            changed = True
+        else:
+            i += 1
+
+    if not changed:
+        return deck
+    repaired = [c for c, n in counts.items() for _ in range(n)]
+    if len(repaired) != DECK_SIZE or not is_legal(repaired, repaired):
+        return deck  # 安全退化: 射影に失敗したら元のまま（合法性を最優先）
+    return repaired
