@@ -29,6 +29,31 @@ from nn_mcts import make_nn_mcts_agent  # noqa: E402
 from train import load_net  # noqa: E402
 
 
+def _wrap_board_bonus(evaluator, alpha: float):
+    """value に手作りの盤面補正を注入するラッパー（v2.3 の事前検証用）.
+
+    v' = clamp01(v + alpha × (自分の場の駒数 − 相手の場の駒数) / 5)。
+    net の value は盤面資源に盲目（診断で感度≈0）なので、粗い補正を外から注入して
+    「盤面を読めば手が変わり勝率が上がるか」＝v2.3 の因果の鎖の最後の環を安く検証する。
+    効けば v2.3（特徴＋学習）で正式に置き換える価値が実証される。
+    """
+
+    def ev(obs):
+        v, priors = evaluator(obs)
+        st = obs.current
+        if st is not None:
+            yi = st.yourIndex
+
+            def board(p) -> int:
+                return len([a for a in (p.active or []) if a]) + len(p.bench or [])
+
+            diff = board(st.players[yi]) - board(st.players[1 - yi])
+            v = min(1.0, max(0.0, v + alpha * diff / 5.0))
+        return v, priors
+
+    return ev
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="訓練済み NN 操縦の強さ評価")
     p.add_argument("--net", default="models/pvnet.pt", help="訓練済みネット")
@@ -48,6 +73,12 @@ def main() -> None:
         default=0,
         help="接地安全弁の rollout 数（>0 で NN 手 vs heuristic 手を実地比較し pilot≥heuristic 保証）",
     )
+    p.add_argument(
+        "--board-bonus",
+        type=float,
+        default=0.0,
+        help="value への盤面補正の注入 α（v2.3 事前検証用・0 で無効。例 0.1）",
+    )
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
 
@@ -57,6 +88,8 @@ def main() -> None:
 
     net = load_net(args.net, device)
     evaluator = make_net_evaluator(net, meta, device)
+    if args.board_bonus:
+        evaluator = _wrap_board_bonus(evaluator, args.board_bonus)
     nn_agent = make_nn_mcts_agent(
         meta,
         deck,
@@ -78,8 +111,9 @@ def main() -> None:
     res = evaluate(nn_agent, opponent, deck, rng, args.games)
     # どの .pt を測ったか曖昧にしないよう実際のネット名を表示する
     net_name = os.path.basename(args.net)
+    bonus = f"+board{args.board_bonus}" if args.board_bonus else ""
     print(
-        f"NN-MCTS({net_name}) vs {args.vs}（同一デッキ・{args.games}試合・席入替, device={device}）: "
+        f"NN-MCTS({net_name}{bonus}) vs {args.vs}（同一デッキ・{args.games}試合・席入替, device={device}）: "
         f"NN 勝率 = {res['win_rate_a']:.3f}  ({res['wins_a']}-{res['wins_b']}, draws {res['draws']})"
     )
     print("  >0.5 なら NN 操縦が相手より強い（訓練が効いている）")
