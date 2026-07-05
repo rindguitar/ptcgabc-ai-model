@@ -45,6 +45,9 @@ def main() -> None:
     p.add_argument("--deck", default=None, help="デッキ CSV（既定 champion_best）")
     p.add_argument("--games", type=int, default=2, help="計測する試合数")
     p.add_argument("--floor-rollouts", type=int, default=8)
+    p.add_argument(
+        "--board-bonus", type=float, default=0.2, help="nn の盤面補正 α（提出と同じ）"
+    )
     p.add_argument("--game-budget", type=float, default=540.0)
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
@@ -56,7 +59,11 @@ def main() -> None:
     if args.policy == "nn":
         if not (args.net and os.path.exists(args.net)):
             raise SystemExit(f"--policy nn には --net が必要: {args.net}")
-        kwargs = {"net_path": args.net, "floor_rollouts": args.floor_rollouts}
+        kwargs = {
+            "net_path": args.net,
+            "floor_rollouts": args.floor_rollouts,
+            "board_bonus": args.board_bonus,
+        }
     agent = make_kaggle_agent(
         args.policy,
         deck=deck,

@@ -122,6 +122,12 @@ def make_kaggle_agent(
         net = load_net(net_path, "cpu")
         net.eval()
         evaluator = make_net_evaluator(net, meta, "cpu")
+        # 盤面補正（board-blind の即効処置・注入テストで α=0.2 が最良 +0.075）
+        board_bonus = policy_kwargs.pop("board_bonus", 0.0)
+        if board_bonus:
+            from nn_eval import wrap_board_bonus
+
+            evaluator = wrap_board_bonus(evaluator, board_bonus)
         inner_nn = make_nn_mcts_agent(
             meta,
             deck,

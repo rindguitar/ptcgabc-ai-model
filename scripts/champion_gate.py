@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src
 from cards import load_card_meta  # noqa: E402
 from deck import load_deck  # noqa: E402
 from deckopt import _load_pool, default_opponent_paths  # noqa: E402
-from eval_deck import eval_deck_vs_meta  # noqa: E402
+from evaluation import eval_deck_vs_meta  # noqa: E402
 
 
 def _better(new: dict, best: dict, margin: float, mean_guard: float) -> bool:
@@ -69,6 +69,12 @@ def main() -> None:
         type=int,
         default=8,
         help="pilot=nn の接地 floor rollout 数（提出と同じ操縦で判定・0 で無効）",
+    )
+    p.add_argument(
+        "--board-bonus",
+        type=float,
+        default=0.0,
+        help="pilot=nn の value への盤面補正 α（提出と同じ操縦で判定・0 で無効）",
     )
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
@@ -123,6 +129,7 @@ def main() -> None:
                     net=args.net,
                     nn_sims=args.nn_sims,
                     floor_rollouts=args.floor_rollouts,
+                    board_bonus=args.board_bonus,
                 )
             )
         return results[0], results[1]

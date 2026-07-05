@@ -174,7 +174,11 @@ gauntlet-real: ## 実メタ（replay抽出）で判定ガントレットを置�
 # （ISMCTS 判定のままだと「ISMCTS が使いやすいデッキ」を選び続ける）。torch が要るため
 # Docker($(RUN)) 実行。ISMCTS 判定に戻すには JUDGE_FLAGS="--pilot ismcts --time-budget 0.05"。
 JUDGE_FLOOR ?= 8
-JUDGE_FLAGS ?= --pilot nn --net $(NN_NET) --nn-sims $(NN_SIMS) --floor-rollouts $(JUDGE_FLOOR)
+# 盤面補正 α（value の board-blind への即効処置・注入テストで 0.2 が最良 +0.075）。
+# 提出（submission-nn）と判定を常に同じ操縦にするため両方に同じ値を使う。
+JUDGE_BONUS ?= 0.2
+JUDGE_FLAGS ?= --pilot nn --net $(NN_NET) --nn-sims $(NN_SIMS) \
+	--floor-rollouts $(JUDGE_FLOOR) --board-bonus $(JUDGE_BONUS)
 
 # デッキ強さの確定評価（vs 相手プール・floored NN 判定・多めの試合）。league内部の小サンプル
 # (6試合)では判定できない「本当にデッキが強くなったか」を測る。champions/ のバックアップと比較可。
@@ -245,12 +249,13 @@ submission-nn: ## NN操縦の提出パッケージ models/submission_nn.tar.gz�
 	if [ ! -f "$$deck" ]; then deck=models/champion_deck.csv; \
 		echo "champion_best.csv 未作成→ $$deck を同梱（先に ratchet 推奨）"; \
 	else echo "同梱デッキ（最良）: $$deck"; fi; \
-	echo "同梱ネット: $(SUBMISSION_NET)"; \
+	echo "同梱ネット: $(SUBMISSION_NET)（board-bonus $(JUDGE_BONUS)）"; \
 	$(PY) scripts/build_submission.py --deck $$deck --policy nn --net $(SUBMISSION_NET) \
-		--out models/submission_nn.tar.gz
+		--board-bonus $(JUDGE_BONUS) --out models/submission_nn.tar.gz
 
 smoke-submission: ## 提出エージェントの煙テスト＋時間計測（600秒検証・NN は Docker）
-	$(RUN) python scripts/smoke_submission.py --policy nn --net $(SUBMISSION_NET) $(SMOKE_ARGS)
+	$(RUN) python scripts/smoke_submission.py --policy nn --net $(SUBMISSION_NET) \
+		--board-bonus $(JUDGE_BONUS) $(SMOKE_ARGS)
 
 # === Docker 実行（重い作業 / GPU = Phase 3） ===============================
 # build は数分〜10 分以上かかるため、原則ユーザーが手動実行する（CLAUDE.md 参照）。

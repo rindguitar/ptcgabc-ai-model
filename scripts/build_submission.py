@@ -77,9 +77,10 @@ agent = make_kaggle_agent(
 
 _AGENT_CALLS = {
     "ismcts": '"ismcts", deck_path="deck.csv", opp_pool_dir="opp_decks", game_budget=540.0',
-    # floored NN-MCTS: pilot≥heuristic の接地保証＋時間ガード（超過時 heuristic 退避）。
+    # floored NN-MCTS: pilot≥heuristic の接地保証＋時間ガード（超過時 heuristic 退避）
+    # ＋盤面補正（board-blind な value への注入・α=0.2 実測 +0.075）。
     "nn": '"nn", deck_path="deck.csv", opp_pool_dir="opp_decks", game_budget=540.0,\n'
-    '    net_path="pvnet.pt", floor_rollouts={floor_rollouts}',
+    '    net_path="pvnet.pt", floor_rollouts={floor_rollouts}, board_bonus={board_bonus}',
 }
 
 
@@ -89,6 +90,7 @@ def build(
     policy: str = "ismcts",
     net_path: str | None = None,
     floor_rollouts: int = 8,
+    board_bonus: float = 0.2,
 ) -> tuple[str, list[str]]:
     """提出パッケージを組み立てて (tar パス, 同梱物一覧) を返す."""
     build_dir = os.path.join(ROOT, "models", "submission")
@@ -96,7 +98,9 @@ def build(
         shutil.rmtree(build_dir)
     os.makedirs(build_dir)
 
-    agent_call = _AGENT_CALLS[policy].format(floor_rollouts=floor_rollouts)
+    agent_call = _AGENT_CALLS[policy].format(
+        floor_rollouts=floor_rollouts, board_bonus=board_bonus
+    )
     with open(os.path.join(build_dir, "main.py"), "w") as f:
         f.write(MAIN_PY.format(agent_call=agent_call))
     # 我々のモジュールは package ptcgbot/ に入れ、相互 import を名前空間化する
@@ -162,6 +166,12 @@ def main() -> None:
         default=8,
         help="接地 floor の rollout 数（nn のみ・0 で floor 無効）",
     )
+    parser.add_argument(
+        "--board-bonus",
+        type=float,
+        default=0.2,
+        help="value への盤面補正 α（nn のみ・注入テストで 0.2 が最良 +0.075・0 で無効）",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.deck):
@@ -175,6 +185,7 @@ def main() -> None:
         policy=args.policy,
         net_path=args.net,
         floor_rollouts=args.floor_rollouts,
+        board_bonus=args.board_bonus,
     )
     size_mb = os.path.getsize(out_tar) / 1e6
     print(f"提出パッケージを作成: {out_tar} ({size_mb:.1f} MB・policy={args.policy})")

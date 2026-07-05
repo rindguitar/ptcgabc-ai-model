@@ -24,34 +24,9 @@ from agents import make_heuristic_agent  # noqa: E402
 from cards import load_card_meta  # noqa: E402
 from deck import load_deck  # noqa: E402
 from harness import evaluate  # noqa: E402
-from nn_eval import make_net_evaluator  # noqa: E402
+from nn_eval import make_net_evaluator, wrap_board_bonus  # noqa: E402
 from nn_mcts import make_nn_mcts_agent  # noqa: E402
 from train import load_net  # noqa: E402
-
-
-def _wrap_board_bonus(evaluator, alpha: float):
-    """value に手作りの盤面補正を注入するラッパー（v2.3 の事前検証用）.
-
-    v' = clamp01(v + alpha × (自分の場の駒数 − 相手の場の駒数) / 5)。
-    net の value は盤面資源に盲目（診断で感度≈0）なので、粗い補正を外から注入して
-    「盤面を読めば手が変わり勝率が上がるか」＝v2.3 の因果の鎖の最後の環を安く検証する。
-    効けば v2.3（特徴＋学習）で正式に置き換える価値が実証される。
-    """
-
-    def ev(obs):
-        v, priors = evaluator(obs)
-        st = obs.current
-        if st is not None:
-            yi = st.yourIndex
-
-            def board(p) -> int:
-                return len([a for a in (p.active or []) if a]) + len(p.bench or [])
-
-            diff = board(st.players[yi]) - board(st.players[1 - yi])
-            v = min(1.0, max(0.0, v + alpha * diff / 5.0))
-        return v, priors
-
-    return ev
 
 
 def main() -> None:
@@ -89,7 +64,7 @@ def main() -> None:
     net = load_net(args.net, device)
     evaluator = make_net_evaluator(net, meta, device)
     if args.board_bonus:
-        evaluator = _wrap_board_bonus(evaluator, args.board_bonus)
+        evaluator = wrap_board_bonus(evaluator, args.board_bonus)
     nn_agent = make_nn_mcts_agent(
         meta,
         deck,

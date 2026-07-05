@@ -35,3 +35,28 @@ def make_net_evaluator(net: PVNet, meta: CardMeta, device: str = "cpu") -> Evalu
             return float(value.item()), priors
 
     return evaluator
+
+
+def wrap_board_bonus(evaluator: Evaluator, alpha: float) -> Evaluator:
+    """value に盤面資源の補正を注入するラッパー（board-blind の即効処置）.
+
+    v' = clamp01(v + α × (自分の場の駒数 − 相手の場の駒数) / 5)。
+    診断で net の value は盤面資源（ベンチ切れ＝実戦敗因の6〜7割）に盲目（感度≈0）と判明。
+    注入テスト（40試合×4α）で **α=0.2 が最良（平均+0.075・vs ismcts は α に単調増加）**＝
+    「盤面を読めば手が変わり勝てる」を実証。v2.3（盤面特徴＋学習）が完成したら置き換えて撤去する。
+    """
+
+    def ev(obs: Observation) -> tuple[float, list[float]]:
+        v, priors = evaluator(obs)
+        st = obs.current
+        if st is not None:
+            yi = st.yourIndex
+
+            def board(p) -> int:
+                return len([a for a in (p.active or []) if a]) + len(p.bench or [])
+
+            diff = board(st.players[yi]) - board(st.players[1 - yi])
+            v = min(1.0, max(0.0, v + alpha * diff / 5.0))
+        return v, priors
+
+    return ev

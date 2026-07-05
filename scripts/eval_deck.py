@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import os
 import random
-import statistics
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
@@ -23,76 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src
 from cards import load_card_meta  # noqa: E402
 from deck import load_deck  # noqa: E402
 from deckopt import _load_pool, default_opponent_paths  # noqa: E402
-from harness import evaluate_decks, evaluate_decks_with_factory  # noqa: E402
-from ismcts import make_ismcts_agent  # noqa: E402
-
-
-def eval_deck_vs_meta(
-    deck,
-    meta,
-    opps,
-    rng,
-    games,
-    pilot="ismcts",
-    time_budget=0.1,
-    net="models/pvnet_distill_best.pt",
-    nn_sims=64,
-    floor_rollouts=0,
-) -> dict:
-    """deck を opps（メタ群）に対し評価し per_opp/最悪/平均を返す（gate からも使う）.
-
-    pilot: ismcts（特性対応・遅い）/ nn（蒸留NN-MCTS・ISMCTS同等を高速・要 torch）/
-    heuristic（速いが特性/効果を使わない）。
-    floor_rollouts>0 は nn に接地 floor を付ける＝**提出（floored NN）と同じ操縦で判定**する。
-    """
-    if pilot == "nn":
-        # 蒸留 NN-MCTS：ISMCTS 同等の強さを ~1/4 時間で（torch/GPU・要 Docker）
-        import torch
-
-        from nn_eval import make_net_evaluator
-        from nn_mcts import make_nn_mcts_agent
-        from train import load_net
-
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        _net = load_net(net, device)
-        _ev = make_net_evaluator(_net, meta, device)
-
-        def factory(my_deck, opp_deck):
-            return make_nn_mcts_agent(
-                meta,
-                my_deck,
-                opp_deck,
-                evaluator=_ev,
-                n_simulations=nn_sims,
-                n_determinizations=2,
-                floor_rollouts=floor_rollouts,
-            )
-
-        rates = [
-            evaluate_decks_with_factory(deck, opp, factory, rng, games)["win_rate_a"]
-            for opp in opps
-        ]
-    elif pilot == "ismcts":
-
-        def factory(my_deck, opp_deck):
-            return make_ismcts_agent(meta, my_deck, opp_deck, time_budget=time_budget)
-
-        rates = [
-            evaluate_decks_with_factory(deck, opp, factory, rng, games)["win_rate_a"]
-            for opp in opps
-        ]
-    else:
-        from agents import make_heuristic_agent
-
-        agent = make_heuristic_agent(meta)
-        rates = [
-            evaluate_decks(deck, opp, agent, rng, games)["win_rate_a"] for opp in opps
-        ]
-    return {
-        "per_opp": rates,
-        "worst": min(rates),
-        "mean": statistics.mean(rates),
-    }
+from evaluation import eval_deck_vs_meta  # noqa: E402
 
 
 def main() -> None:
@@ -128,6 +58,12 @@ def main() -> None:
         default=8,
         help="pilot=nn の接地 floor rollout 数（提出と同じ操縦で判定・0 で無効）",
     )
+    p.add_argument(
+        "--board-bonus",
+        type=float,
+        default=0.0,
+        help="pilot=nn の value への盤面補正 α（提出と同じ操縦で判定・0 で無効）",
+    )
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
 
@@ -150,6 +86,7 @@ def main() -> None:
         net=args.net,
         nn_sims=args.nn_sims,
         floor_rollouts=args.floor_rollouts,
+        board_bonus=args.board_bonus,
     )
     label = args.pilot + (
         f"+floor{args.floor_rollouts}"
