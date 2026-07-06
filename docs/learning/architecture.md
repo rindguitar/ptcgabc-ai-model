@@ -72,7 +72,11 @@
 | [eval_net.py](../../scripts/eval_net.py) | `eval-net` | NN 操縦の強さを vs heuristic / ismcts で測る（確定判断・40+試合） |
 | [eval_deck.py](../../scripts/eval_deck.py) | `eval-deck` | デッキの強さを相手プールに対し測る（pilot 選択可） |
 | [champion_gate.py](../../scripts/champion_gate.py) | `champion-gate` / `ratchet` | keep-best ゲート（新が best を上回った時だけ昇格） |
-| [make_gauntlet.py](../../scripts/make_gauntlet.py) | `gauntlet` | 多様な相手デッキ群を生成（過学習対策の判定用） |
+| [analyze_replays.py](../../scripts/analyze_replays.py) | `replays` | Kaggle replay の集計（勝率/敗因/時間・冪等ログ）＋実メタデッキ抽出 |
+| [gauntlet_from_replays.py](../../scripts/gauntlet_from_replays.py) | `gauntlet-real` | 実メタ（replay抽出）で判定ガントレットを置換（旧 make_gauntlet の後継） |
+| [repair_deck.py](../../scripts/repair_deck.py) | - | デッキ構成を実メタ分布へ機械修復（中核は deck.repair_composition） |
+| [diagnose_value_board.py](../../scripts/diagnose_value_board.py) | - | value の盤面資源感度を2net比較（board-blind 診断） |
+| [smoke_submission.py](../../scripts/smoke_submission.py) | `smoke-submission` | 提出エージェントの煙テスト＋600秒クロック実測 |
 | [build_submission.py](../../scripts/build_submission.py) | `submission` | 提出 tar.gz を組み立て（操縦＋デッキ＋cg を同梱） |
 
 ## 追跡外（Git 管理しない）

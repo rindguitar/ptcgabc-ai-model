@@ -21,7 +21,7 @@ RUN     := $(COMPOSE) run --rm dev
 
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
-        ratchet ratchet-overnight ratchet-nn gauntlet eval-deck champion-gate \
+        ratchet ratchet-overnight ratchet-nn gauntlet-real replays eval-deck champion-gate \
         train distill distill-1h distill-overnight improve improve-1h eval-net diagnose \
         submission build rebuild shell jupyter gpu-check exec up down clean
 
@@ -159,11 +159,6 @@ eval-net: ## 訓練済みNNの確定判断用 評価（既定: 最良net・vs he
 DIAGNOSE_ARGS ?=
 diagnose: ## NN policy 診断（shortcut度/教師再現度/文脈感度/集中度/教師強度・Docker）
 	$(RUN) python scripts/diagnose_policy.py --net $(EVAL_NET) $(DIAGNOSE_ARGS)
-
-# 多様ガントレット生成（過学習対策）。生成後は league/eval-deck/gate が自動でこれを相手に使う
-# （models/gauntlet/ があれば data/*.csv より優先）。相手が多彩になる分、評価/探索は遅くなる。
-gauntlet: ## 多様な相手デッキ群 models/gauntlet/ を生成（メタ＋チャンピオン系＋全色mono-type）
-	$(PY) scripts/make_gauntlet.py
 
 # Kaggle replay の分析（日次運用: DL → make replays → JSON 削除）。episodes_log.csv に
 # 冪等で永続化し、相手デッキを opp_decks/ に抽出する。提出の A/B はフォルダ名が
