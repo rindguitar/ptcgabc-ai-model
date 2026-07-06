@@ -163,6 +163,13 @@ diagnose: ## NN policy 診断（shortcut度/教師再現度/文脈感度/集中�
 gauntlet: ## 多様な相手デッキ群 models/gauntlet/ を生成（メタ＋チャンピオン系＋全色mono-type）
 	$(PY) scripts/make_gauntlet.py
 
+# Kaggle replay の分析（日次運用: DL → make replays → JSON 削除）。episodes_log.csv に
+# 冪等で永続化し、相手デッキを opp_decks/ に抽出する。提出の A/B はフォルダ名が
+# ラベルになる（data/replays/nn/・nn_repaired/・ismcts/ 等）。ホスト(CPU)。
+REPLAYS_ARGS ?=
+replays: ## replay 分析（勝率/敗因/時間の集計＋実メタデッキ抽出・冪等・ホスト）
+	$(PY) scripts/analyze_replays.py $(REPLAYS_ARGS)
+
 # 実メタ較正: replay 抽出デッキ（analyze_replays.py が蓄積）で判定プールを置換。
 # レートが上がったら直近 replay を取り直して再実行＝ローリング較正（レート帯バイアス対策）。
 GAUNTLET_N ?= 16
