@@ -168,6 +168,13 @@ def main() -> None:
         "収集し net に蒸留する＝v2.3 の学習経路。提出と同じ 0.2 を推奨）",
     )
     p.add_argument(
+        "--opening-samples",
+        type=int,
+        default=12,
+        help="self-play の温度スケジュール: π サンプリングを最初の N 決定に限定し以降 argmax"
+        "（全手サンプリングは終盤の乱心で z を汚染し value が逆相関を学ぶ・実測）",
+    )
+    p.add_argument(
         "--buffer", type=int, default=20, help="リプレイバッファに保持する直近反復数"
     )
     p.add_argument(
@@ -322,6 +329,7 @@ def main() -> None:
                 rng,
                 args.workers,
                 board_bonus=args.collect_board_bonus,
+                opening_samples=args.opening_samples,
                 n_simulations=args.collect_sims or args.sims,
                 n_determinizations=args.collect_dets or args.dets,
                 root_noise_eps=args.root_noise,
@@ -336,6 +344,7 @@ def main() -> None:
                 evaluator,
                 args.games,
                 rng,
+                opening_samples=args.opening_samples,
                 n_simulations=args.collect_sims or args.sims,
                 n_determinizations=args.collect_dets or args.dets,
                 root_noise_eps=args.root_noise,
@@ -391,6 +400,22 @@ def main() -> None:
             print(
                 f"  [eval] iter {it}: NN-MCTS vs heuristic 勝率(全{len(decks)}デッキ平均) = {wr:.3f}"
             )
+            if ema_net is not None:
+                # カナリア: 生 net（EMA なし）を先頭デッキだけで測る。EMA が劣化を平滑化して
+                # 隠す事故（decay バグで3run分マスキングされた実測）を構造的に防ぐ観測線。
+                raw_wr = _eval_vs_heuristic(
+                    net,
+                    meta,
+                    decks[:1],
+                    device,
+                    15,
+                    args.sims,
+                    args.dets,
+                    eval_seed + 1,
+                )
+                print(
+                    f"  [canary] iter {it}: 生net vs heuristic（先頭デッキのみ） = {raw_wr:.3f}"
+                )
             # 作業 net の直近 eval を sidecar に記録（次回の安全弁判定 --resume-from-best 用）
             with open(work_meta_path, "w") as f:
                 json.dump({"last_wr": wr}, f)

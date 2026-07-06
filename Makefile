@@ -132,12 +132,15 @@ IMPROVE_ITERS ?= 40
 # 実測で sims32(0.575)≈sims64(0.500)＝**深さの効果はこの net では 32 で頭打ち**と判明し 64 に。
 # 深さでなく value の質が律速。深い収集は net が強くなって曲線が立ってきたら再検討。
 IMPROVE_COLLECT_SIMS ?= 64
+# 収集評価器への盤面補正。self-play 崩壊の切り分け中は 0（§21: 一度に一変更）。
+# self-play が安定してから単独で再検証する（提出/判定の注入 JUDGE_BONUS とは独立）。
+IMPROVE_COLLECT_BONUS ?= 0
 IMPROVE_ARGS  ?=
 improve: ## self-playでISMCTS超えを狙う（蒸留種・深い収集＋根ノイズ・EMA・best保存・drift安全弁）
 	$(RUN) python scripts/train_alphazero.py --teacher selfplay --resume --resume-from-best \
 		--init-from $(IMPROVE_SEED) --out $(IMPROVE_OUT) --best-out $(IMPROVE_BEST) \
 		--iterations $(IMPROVE_ITERS) --workers $(DISTILL_WORKERS) --ema \
-		--collect-sims $(IMPROVE_COLLECT_SIMS) --collect-board-bonus $(JUDGE_BONUS) \
+		--collect-sims $(IMPROVE_COLLECT_SIMS) --collect-board-bonus $(IMPROVE_COLLECT_BONUS) \
 		--eval-every 10 --eval-games 24 $(_DECKS_FLAG) $(IMPROVE_ARGS)
 
 improve-1h: ## 約1時間の improve（前回に継ぎ足し・日中ちょくちょく用）

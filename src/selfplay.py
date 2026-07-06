@@ -65,17 +65,24 @@ def play_selfplay_game(
     max_steps: int = 100_000,
     sample_actions: bool = True,
     root_noise_eps: float = 0.25,
+    opening_samples: int = 12,
 ) -> list[Sample]:
     """1 試合を自己対戦し（両席とも同じ評価器）、学習サンプル列を返す.
 
     root_noise_eps: 根の Dirichlet ノイズ（AlphaZero 標準 ε=0.25）。self-play の探索が毎回
     同じ手に固まるのを防ぎ、データの多様性＝改善オペレータの探索範囲を保つ。0 で無効。
     推論/評価の agent 経路（make_nn_mcts_agent）はノイズ無し（強さを測る/出すときは決定的）。
+
+    opening_samples: **温度スケジュール**（AlphaZero 標準）。π からのサンプリングは
+    最初の N 決定だけに限定し、以降は argmax で打つ。全手サンプリングだと浅い探索の
+    平坦な π から終盤に悪手を引き、「勝勢だったのに乱心で負けた」試合の z が全局面を
+    汚染する（実測: value が盤面の逆相関を学び劣化）。0 で全手 argmax。
     """
     heuristic = make_heuristic_agent(meta)
     obs_dict, _ = battle_start(deck, deck)
     pending: list[tuple[np.ndarray, np.ndarray, np.ndarray, int]] = []
     result: int | None = None
+    n_decisions = 0  # 温度スケジュール用（両席合算の MCTS 決定数）
 
     try:
         for _ in range(max_steps):
@@ -113,11 +120,11 @@ def play_selfplay_game(
                             obs.current.yourIndex,
                         )
                     )
-                    idx = (
-                        _sample_index(list(pi), rng)
-                        if sample_actions
-                        else int(pi.argmax())
-                    )
+                    # 温度スケジュール: 序盤 opening_samples 決定だけ π サンプリング（多様な
+                    # 立ち上がり）、以降は argmax（対局の質を保ち z ラベルの汚染を防ぐ）
+                    explore = sample_actions and n_decisions < opening_samples
+                    idx = _sample_index(list(pi), rng) if explore else int(pi.argmax())
+                    n_decisions += 1
                     action = [idx]
                 else:
                     action = heuristic(obs, rng)
