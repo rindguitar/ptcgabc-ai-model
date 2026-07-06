@@ -135,7 +135,7 @@ improve: ## self-playでISMCTS超えを狙う（蒸留種・深い収集＋根�
 	$(RUN) python scripts/train_alphazero.py --teacher selfplay --resume --resume-from-best \
 		--init-from $(IMPROVE_SEED) --out $(IMPROVE_OUT) --best-out $(IMPROVE_BEST) \
 		--iterations $(IMPROVE_ITERS) --workers $(DISTILL_WORKERS) --ema \
-		--collect-sims $(IMPROVE_COLLECT_SIMS) \
+		--collect-sims $(IMPROVE_COLLECT_SIMS) --collect-board-bonus $(JUDGE_BONUS) \
 		--eval-every 10 --eval-games 24 $(_DECKS_FLAG) $(IMPROVE_ARGS)
 
 improve-1h: ## 約1時間の improve（前回に継ぎ足し・日中ちょくちょく用）

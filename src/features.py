@@ -43,13 +43,22 @@ N_ACTION_ID = 1  # その手の対象 cardId
 # net が読めるようにする。6: 被有効ダメージ絶対 / 被ダメージ比 / 相手にKOされる /
 #   自分が弱点を突かれる / 抵抗で軽減 / KOされて失うサイド。
 THREAT_FEAT = 6
-# 観測ベクトル長。末尾は [... HAND, ACTIVE_META×2, THREAT, cardId×N_STATE_ID]（id は最後）。
+# 盤面資源の集約特徴（NN v2.3）: 実戦の勝敗の6〜7割がベンチ切れなのに、value の盤面感度が
+# ≈0（board-blind）と診断された対策。駒数は present フラグ×6枠に分散していて小さい MLP が
+# 集約を学べなかったため、**明示の集約値**として与える。注入テスト（value に駒数差を外挿）で
+# α=0.2 が +0.075 と実証済み＝この信号は勝率に直結する。5:
+#   自分の場の駒数 / 相手の場の駒数 / 駒数差（注入で実証したシグナルそのもの）/
+#   手札のたね数（ベンチに出せる後続）/ 総資源（場＋手札たね）。
+BOARD_FEAT = 5
+# 観測ベクトル長。末尾は [... HAND, ACTIVE_META×2, THREAT, BOARD, cardId×N_STATE_ID]（id は最後）。
+# 新特徴は**末尾 id の直前**に足す＝旧 float 列の位置が不変＝warm-start（旧重み引き継ぎ）が有効。
 OBS_FEAT_LEN = (
     GLOBAL_FEAT
     + 2 * PLAYER_FEAT
     + HAND_FEAT
     + 2 * ACTIVE_META_FEAT
     + THREAT_FEAT
+    + BOARD_FEAT
     + N_STATE_ID
 )
 # 行動の対象カードのメタ（末尾に追加）: 特性有無 / 威力効率 / HP
@@ -116,6 +125,31 @@ def _encode_threat(
         1.0 if is_weak else 0.0,
         1.0 if is_resisted else 0.0,
         (my_prize / 3) if opp_can_ko_me else 0.0,
+    ]
+
+
+def _encode_board_resources(
+    mine: PlayerState, opp: PlayerState, meta: CardMeta
+) -> list[float]:
+    """盤面資源の集約特徴（v2.3・board-blind 対策）を符号化する.
+
+    駒数差 (自分−相手)/5 は注入テストで α=0.2×この値が +0.075 と実証されたシグナルそのもの。
+    value はこの1列を回帰するだけで「盤面を枯らす/枯らされる」勝敗構造を表現できる。
+    """
+
+    def board(p: PlayerState) -> int:
+        return len([a for a in (p.active or []) if a]) + len(p.bench or [])
+
+    mb, ob = board(mine), board(opp)
+    hand_basics = sum(
+        1 for c in (mine.hand or []) if meta.is_basic_pokemon(c.id)
+    )  # ベンチに出せる後続（相手手札は非公開なので自分のみ）
+    return [
+        mb / 6.0,
+        ob / 6.0,
+        (mb - ob) / 5.0,
+        min(hand_basics, 6) / 6.0,
+        min(mb + hand_basics, 10) / 10.0,
     ]
 
 
@@ -248,6 +282,8 @@ def encode_observation(obs: Observation, meta: CardMeta) -> np.ndarray:
     feats += _encode_active_meta(my_act, meta) + _encode_active_meta(opp_act, meta)
     # 被弾スレット（守り側の有効ダメージ・KO・失うサイド）を末尾追加（NN v2.2）
     feats += _encode_threat(my_act, opp_act, meta)
+    # 盤面資源の集約（v2.3・board-blind 対策）。id の直前＝warm-start 有効な位置に追加
+    feats += _encode_board_resources(st.players[yi], st.players[1 - yi], meta)
     # 末尾に cardId（整数）を載せる＝net が Embedding する。0=不在/pad。
     feats.append(float(my_act.id) if my_act else 0.0)
     feats.append(float(opp_act.id) if opp_act else 0.0)
