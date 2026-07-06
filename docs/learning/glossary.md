@@ -117,6 +117,9 @@ SGD は各 iter でパラメータが小さく揺れる。**単一 iter の net 
 - 効いる理由: 平均は損失地形の**平らで広い谷（汎化の良い解）**に寄りやすく、iter ごとの上振れ/下振れを打ち消す。
 - 本プロジェクトでの用途: 「最新 iter で eval」のノイズ対策。生の最新でなく **EMA net を保存・eval** すれば、
   たまたま悪い iter を掴むリスクが減る（→ [design-decisions.md](design-decisions.md) §17）。
+- **落とし穴（実測）**: decay は**更新頻度とセット**。per-step 前提の 0.999 を per-iter（1 iter 1回）更新に
+  使うと 30 iter でも 97% が初期重みのまま＝**学習が実質凍結**し、eval/best がずっと種を測り続ける。
+  per-iter なら 0.9 程度（半減期≈7iter）。
 
 ### Dirichlet 根ノイズ（root exploration noise）
 AlphaZero 標準の探索多様化。self-play 収集で**根ノードの事前確率に乱数を混ぜる**:

@@ -186,8 +186,10 @@ def main() -> None:
     p.add_argument(
         "--ema-decay",
         type=float,
-        default=0.999,
-        help="EMA の減衰率（大きいほど滑らか・追従は遅い）",
+        default=0.9,
+        help="EMA の減衰率。**更新は 1 iter に 1 回**なので per-step 前提の 0.999 は厳禁"
+        "（0.999^30≈0.97＝30iter 回しても97%%が初期重みのまま＝学習が実質凍結する事故を実測）。"
+        "0.9 は半減期≈7iter＝ノイズ平滑と追従の折衷",
     )
     p.add_argument(
         "--log", default="models/train_log.csv", help="進捗ログ CSV（追記・追跡外）"
