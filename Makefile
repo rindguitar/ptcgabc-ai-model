@@ -77,11 +77,13 @@ check: lint fmt-check test ## lint・fmt-check・test を順に実行
 
 # === Phase 3 NN（Docker・torch/GPU）=========================================
 # 学習デッキ群: チャンピオン＋メタを巡回（1デッキ過学習を避け汎用 pilot 化）。先頭=評価固定。
-# 訓練デッキプール＝**混合**: champion_best（自分の主力）＋公式メタ（普遍的なサイドレースの
-# アンカー＝サイドを取る勝ち筋を忘れない）＋実メタ上位6（replay 抽出・ベンチ切れが支配する
-# 実戦の終局分布を value に見せる）。実メタ 100% にしない＝レート帯過適合を避ける。
+# 訓練デッキプール＝**混合**: champion_repaired（実メタ構成の主力＝これを乗りこなす操縦を
+# 育てる。旧エネ過多 champion への過適合が操縦とデッキの共適応ロックの原因だった）＋
+# champion_best（現提出デッキ）＋公式メタ（サイドレースのアンカー）＋実メタ上位6（replay
+# 抽出・実戦の終局分布）。実メタ 100% にしない＝レート帯過適合を避ける。
 # 再訓練はレート帯ごとに行わず、replay 分析の敗因分布が大きく変わった時だけ（データ駆動）。
-TRAIN_DECKS ?= $(firstword $(wildcard models/champion_best.csv) data/deck.csv) \
+TRAIN_DECKS ?= $(wildcard models/champion_repaired.csv) \
+	$(firstword $(wildcard models/champion_best.csv) data/deck.csv) \
 	$(wildcard data/*_Deck.csv) $(wordlist 1,6,$(sort $(wildcard models/gauntlet/*.csv)))
 _DECKS_FLAG  = --deck $(TRAIN_DECKS)
 TRAIN_ARGS  ?=
