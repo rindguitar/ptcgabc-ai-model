@@ -126,7 +126,7 @@ distill-overnight: ## 強い教師(TB=0.5)で蒸留（大容量netの収束に�
 # 収集は CPU 並列（NN-MCTS は batch=1 推論＝GPUより CPU 向き）。判定は make eval-net EVAL_VS=ismcts。
 IMPROVE_OUT   ?= models/pvnet_improve.pt
 IMPROVE_BEST  ?= models/pvnet_improve_best.pt
-IMPROVE_SEED  ?= models/pvnet_distill_best.pt
+IMPROVE_SEED  ?= $(firstword $(wildcard models/pvnet_seed.pt) models/pvnet_distill_best.pt)
 IMPROVE_ITERS ?= 40
 # 収集時の探索深度（--sims と独立に制御可能）。当初 128（深い収集=質の賭け）を予定したが、
 # 実測で sims32(0.575)≈sims64(0.500)＝**深さの効果はこの net では 32 で頭打ち**と判明し 64 に。
@@ -149,7 +149,7 @@ improve-1h: ## 約1時間の improve（前回に継ぎ足し・日中ちょく�
 # 黙って測る事故を防ぐ）。別ネットを測るなら make eval-net EVAL_NET=models/pvnet_distill_best.pt。
 EVAL_GAMES ?= 40
 EVAL_VS    ?= heuristic
-EVAL_NET   ?= $(firstword $(wildcard models/pvnet_improve_best.pt) $(wildcard models/pvnet_distill_best.pt) models/pvnet.pt)
+EVAL_NET   ?= $(firstword $(wildcard models/pvnet_improve_best.pt) $(wildcard models/pvnet_seed.pt) models/pvnet_distill_best.pt)
 EVAL_ARGS  ?=
 eval-net: ## 訓練済みNNの確定判断用 評価（既定: 最良net・vs heuristic 40試合・Docker）
 	$(RUN) python scripts/eval_net.py --net $(EVAL_NET) --vs $(EVAL_VS) --games $(EVAL_GAMES) $(EVAL_ARGS)
