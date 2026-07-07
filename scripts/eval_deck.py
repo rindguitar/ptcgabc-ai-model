@@ -34,7 +34,7 @@ def main() -> None:
         "--meta",
         nargs="+",
         default=None,
-        help="相手メタ群（未指定なら data/*.csv の60枚デッキ）",
+        help="相手メタ群（未指定なら実メタ優先＝gauntlet/>replays/opp_decks/>data/*.csv）",
     )
     p.add_argument("--games", type=int, default=20, help="相手1体あたりの試合数")
     p.add_argument(

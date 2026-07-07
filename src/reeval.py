@@ -12,12 +12,11 @@ harness.evaluate_decks_with_factory（席ごとに操縦者を生成）を使う
 from __future__ import annotations
 
 import argparse
-import glob
 import random
 
 from agents import make_heuristic_agent
 from cards import CardMeta, load_card_meta
-from deckopt import _load_pool
+from deckopt import _load_pool, default_opponent_paths
 from harness import evaluate_decks_with_factory
 from ismcts import make_ismcts_agent
 
@@ -72,7 +71,7 @@ def main() -> None:
         "--pool",
         nargs="+",
         default=None,
-        help="相手プール CSV 群（未指定なら data/*.csv の60枚デッキ）",
+        help="相手プール CSV 群（未指定なら実メタ優先＝gauntlet/>replays/opp_decks/>data/*.csv）",
     )
     parser.add_argument("--games", type=int, default=6, help="相手1体あたりの対戦数")
     parser.add_argument(
@@ -82,7 +81,7 @@ def main() -> None:
     args = parser.parse_args()
 
     candidate = _load_pool([args.candidate])[0]
-    pool_paths = args.pool or sorted(glob.glob("data/*.csv"))
+    pool_paths = args.pool or default_opponent_paths()  # 未指定は実メタ優先
     pool = _load_pool(pool_paths)
     meta = load_card_meta()
 

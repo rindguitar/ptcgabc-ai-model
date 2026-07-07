@@ -20,7 +20,6 @@ heuristic で対戦を進めながら各 MAIN/ATTACK 決定を解析する（net
 from __future__ import annotations
 
 import argparse
-import glob
 import math
 import os
 import random
@@ -34,7 +33,7 @@ from agents import make_heuristic_agent  # noqa: E402
 from cards import load_card_meta  # noqa: E402
 from cg.game import battle_finish, battle_select, battle_start  # noqa: E402
 from cg.api import to_observation_class  # noqa: E402
-from deckopt import _load_pool  # noqa: E402
+from deckopt import _load_pool, default_opponent_paths  # noqa: E402
 from harness import evaluate  # noqa: E402
 from ismcts import make_ismcts_agent  # noqa: E402
 from nn_eval import make_net_evaluator  # noqa: E402
@@ -141,7 +140,7 @@ def main() -> None:
         "--deck",
         nargs="+",
         default=None,
-        help="解析デッキ（未指定なら data/*.csv 先頭3つ）",
+        help="解析デッキ（未指定なら実メタ優先＝gauntlet/>replays/opp_decks/>data/*.csv の先頭3つ）",
     )
     p.add_argument("--decisions", type=int, default=200, help="解析する決定数")
     p.add_argument(
@@ -161,7 +160,7 @@ def main() -> None:
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     meta = load_card_meta()
-    paths = args.deck or sorted(glob.glob("data/*.csv"))
+    paths = args.deck or default_opponent_paths()  # 未指定は実メタ優先
     decks = _load_pool(paths)[:3]  # 非デッキ CSV（カードデータ等）は除外される
     if not decks:
         raise SystemExit("解析できる60枚デッキが見つかりません（--deck で指定）")

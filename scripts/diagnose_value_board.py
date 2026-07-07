@@ -15,7 +15,6 @@ value が「相手の場が薄い＝勝ちに近い」を学べていない疑�
 from __future__ import annotations
 
 import argparse
-import glob
 import os
 import random
 import sys
@@ -29,7 +28,7 @@ from agents import make_heuristic_agent  # noqa: E402
 from cards import load_card_meta  # noqa: E402
 from cg.game import battle_finish, battle_select, battle_start  # noqa: E402
 from cg.api import to_observation_class  # noqa: E402
-from deckopt import _load_pool  # noqa: E402
+from deckopt import _load_pool, default_opponent_paths  # noqa: E402
 from nn_eval import make_net_evaluator  # noqa: E402
 from nn_mcts import _MCTS_SELECT_TYPES  # noqa: E402
 from train import load_net, load_net_warmstart  # noqa: E402
@@ -55,11 +54,7 @@ def main() -> None:
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     meta = load_card_meta()
-    paths = (
-        args.deck
-        or sorted(glob.glob("models/gauntlet/*.csv"))
-        or sorted(glob.glob("data/*.csv"))
-    )
+    paths = args.deck or default_opponent_paths()  # 未指定は実メタ優先
     decks = _load_pool(paths)[:4]
     rng = random.Random(args.seed)
 

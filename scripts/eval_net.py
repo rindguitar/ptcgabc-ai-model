@@ -87,24 +87,11 @@ def main() -> None:
         # eval_deck_vs_meta を共用（提出と同じ floored NN＋盤面補正で判定できる）。
         import glob
 
-        from deckopt import _load_pool
+        from deckopt import _load_pool, default_opponent_paths
         from evaluation import eval_deck_vs_meta
 
-        if args.opp_glob:
-            paths = sorted(glob.glob(args.opp_glob))
-        else:  # 実メタ優先: gauntlet(実メタ抽出) > replay 生抽出 > 公式サンプル
-            paths = next(
-                (
-                    ps
-                    for pat in (
-                        "models/gauntlet/*.csv",
-                        "data/replays/opp_decks/*.csv",
-                        "data/*.csv",
-                    )
-                    if (ps := sorted(glob.glob(pat)))
-                ),
-                [],
-            )
+        # 実メタ優先の解決は default_opponent_paths に一本化（gate/eval-deck と同一プール）
+        paths = sorted(glob.glob(args.opp_glob)) if args.opp_glob else default_opponent_paths()
         opps = _load_pool(paths)
         if not opps:
             raise SystemExit("相手プールが空（先に make gauntlet-real か replay 抽出）")

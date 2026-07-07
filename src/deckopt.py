@@ -225,13 +225,20 @@ def load_staple_freq() -> "Counter[int]":
 
 
 def default_opponent_paths() -> list[str]:
-    """相手プールの既定パス。多様ガントレット(models/gauntlet/)があれば優先、無ければ data/*.csv.
+    """相手プールの既定パス（確定判断＝gate/eval-deck/reeval が共用する**実メタ優先**の解決）.
 
-    5枚のサンプルメタだけに最適化すると過学習して実戦で弱くなるため、ガントレットがあれば
-    そちらを使って「多様な相手に堅い」方向へ寄せる。
+    5枚のサンプルメタだけに最適化すると過学習して実戦で弱くなる（proxy metric・design §25）。
+    実環境を代表する順で選ぶ:
+      ① models/gauntlet/（`make gauntlet-real` が実 replay から選抜した判定プール）
+      ② data/replays/opp_decks/（実 replay から抽出した相手デッキ・生 79 件など）
+      ③ data/*.csv（公式サンプル5メタ＝最後の砦）
+    どれか最初に見つかった層を返す。net/デッキの確定判断は必ずこれ経由で実メタに当てる。
     """
-    g = sorted(glob.glob("models/gauntlet/*.csv"))
-    return g if g else sorted(glob.glob("data/*.csv"))
+    for pat in ("models/gauntlet/*.csv", "data/replays/opp_decks/*.csv", "data/*.csv"):
+        paths = sorted(glob.glob(pat))
+        if paths:
+            return paths
+    return []
 
 
 def _load_pool(paths: list[str]) -> list[list[int]]:
