@@ -21,7 +21,7 @@ RUN     := $(COMPOSE) run --rm dev
 
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
-        ratchet ratchet-overnight ratchet-nn gauntlet-real replays eval-deck champion-gate \
+        ratchet ratchet-overnight ratchet-nn gauntlet-real replays replay-extract replay-tune eval-deck champion-gate \
         train distill distill-1h distill-overnight improve improve-1h eval-net diagnose \
         submission build rebuild shell jupyter gpu-check exec up down clean
 
@@ -171,6 +171,14 @@ diagnose: ## NN policy 診断（shortcut度/教師再現度/文脈感度/集中�
 REPLAYS_ARGS ?=
 replays: ## replay 分析（勝率/敗因/時間の集計＋実メタデッキ抽出・冪等・ホスト）
 	$(PY) scripts/analyze_replays.py $(REPLAYS_ARGS)
+
+# 実戦 replay を NN の value 学習に混ぜる（唯一データに盤面信号が入る経路・§24）。
+# ①抽出（ホスト・冪等・JSON はこの後削除可）→ ②value 頭だけ fine-tune（Docker/torch）→ diagnose。
+replay-extract: ## replay JSON から value 学習サンプル (state,z) を抽出・永続化（ホスト）
+	$(PY) scripts/extract_replay_samples.py
+REPLAY_TUNE_INIT ?= models/pvnet_operative.pt
+replay-tune: ## 実戦 z で value 頭を fine-tune（policy 不変・Docker）→ pvnet_replay.pt
+	$(RUN) python scripts/replay_value_tune.py --init $(REPLAY_TUNE_INIT) --out models/pvnet_replay.pt $(REPLAY_TUNE_ARGS)
 
 # 実メタ較正: replay 抽出デッキ（analyze_replays.py が蓄積）で判定プールを置換。
 # レートが上がったら直近 replay を取り直して再実行＝ローリング較正（レート帯バイアス対策）。

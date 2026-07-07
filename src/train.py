@@ -60,9 +60,14 @@ def train(
     batch_size: int = 32,
     lr: float = 1e-3,
     value_weight: float = 1.0,
+    policy_weight: float = 1.0,
     device: str = "cpu",
 ) -> list[dict]:
-    """samples で PVNet を学習し、epoch ごとの損失履歴を返す."""
+    """samples で PVNet を学習し、epoch ごとの損失履歴を返す.
+
+    policy_weight=0 で **value のみ学習**（実戦 replay の z を value 頭に回帰する用途。
+    replay のダミー行動で policy を汚さない）。
+    """
     if not samples:
         return []
     dev = torch.device(device)
@@ -84,7 +89,7 @@ def train(
             value, logits = net(state, actions)
             v_loss = F.binary_cross_entropy(value, torch.tensor(float(s.z), device=dev))
             p_loss = -(pi * F.log_softmax(logits, dim=-1)).sum()
-            loss = value_weight * v_loss + p_loss
+            loss = value_weight * v_loss + policy_weight * p_loss
             (loss / batch_size).backward()
 
             sum_v += float(v_loss)
