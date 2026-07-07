@@ -11,10 +11,17 @@
 
 from __future__ import annotations
 
+import math
 import random
 from collections import Counter
 
 from cg.api import Observation
+
+# 相手デッキ推定のベイズ重み付けの鋭さ（1 枚の不整合＝説明できない可視札あたりの減衰）。
+# weight(d) = exp(-BETA * misses)。misses は候補デッキ d が説明できない相手可視札の枚数。
+# BETA が大きいほどハード整合フィルタに近づき、小さいほど一様に近づく。2.0 は「変異 1 枚は
+# 許容（e^-2≈0.14）だが 3 枚ずれると実質除外（0.0025）」の折衷。
+_MATCH_BETA = 2.0
 
 
 def _zone_card_ids(player, include_hand: bool) -> list[int]:
@@ -56,24 +63,37 @@ def pick_opponent_deck(
     candidate_decks: list[list[int]] | None,
     fallback_deck: list[int],
     rng: random.Random,
+    beta: float = _MATCH_BETA,
 ) -> list[int]:
-    """相手デッキを推定する.
+    """相手が見せたカードから、実メタ候補デッキ群の事前分布をベイズ更新して 1 つ引く.
 
-    観測で見えている相手のカード（捨て札・場）と**矛盾しない候補デッキ**を candidate_decks
-    から選ぶ（複数あれば無作為）。一致候補が無い（未知デッキ）なら fallback_deck（通常は
-    自分のデッキ＝ミラー仮定）を返す。→ 既知アーキタイプには当たり、未知でも従来どおり＝悪化しない。
+    相手の可視札（捨て札・場・表サイド）を尤度の証拠とし、候補デッキ d を
+    weight(d)=exp(-beta*misses(d)) で重み付けて比例サンプリングする。misses は d が
+    説明できない可視札の枚数（＝観測 multiset を d の構成で覆えない不足分）。
+
+    従来のハード整合フィルタ＋一様抽選を一般化したもの:
+    - 完全整合デッキ（misses=0, weight=1）は従来どおり最優先されつつ、
+    - 序盤（可視札が少なく多数が misses=0）は広く一様＝高い不確実性を反映、
+    - 中終盤（可視札が増える）は自動的に真アーキタイプへ収束（belief sharpening）、
+    - 完全一致が無くても**最も近い実デッキ**へ滑らかに縮退する（ミラーへ崩れない）。
+
+    候補が無い・観測不正なら fallback_deck（通常は自分のデッキ＝ミラー仮定）を返す。
     """
     st = obs.current
     if st is None or not candidate_decks:
         return fallback_deck
     opp = st.players[1 - st.yourIndex]
     seen = Counter(_zone_card_ids(opp, include_hand=False))
-    consistent = [
-        d
-        for d in candidate_decks
-        if all(Counter(d).get(c, 0) >= k for c, k in seen.items())
-    ]
-    return rng.choice(consistent) if consistent else fallback_deck
+    if not seen:  # 手掛かり無し（初手など）＝事前分布のまま一様に引く
+        return rng.choice(candidate_decks)
+    weights = []
+    for d in candidate_decks:
+        cd = Counter(d)
+        misses = sum(k - min(cd.get(c, 0), k) for c, k in seen.items())
+        weights.append(math.exp(-beta * misses))
+    if sum(weights) <= 0.0:  # 全候補が極端に不整合（数値的アンダーフロー）＝ミラーへ退避
+        return fallback_deck
+    return rng.choices(candidate_decks, weights=weights, k=1)[0]
 
 
 def determinize(

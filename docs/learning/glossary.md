@@ -35,6 +35,14 @@ priors を NN（policy head）が出すので、有望な手に最初から探�
 「相手の山札はこれ、手札はこれ」と隠れ情報を**仮に1つ確定**させること。複数の決定化で平均すると、
 特定の仮定に依存しない頑健な評価になる。[determinize.py](../../src/determinize.py)。
 
+### 相手デッキ推定（ベイズ重み付け / belief sharpening）
+determinize で相手の隠れ札を仮定する前に、**相手デッキそのもの**を実メタ候補群から推定する手法（§26）。
+相手の可視札を証拠に候補 d を `weight(d)=exp(-β·misses)`（misses＝説明できない可視札枚数）で重み付け比例
+サンプリングする。可視札が増えるほど分布が真アーキタイプへ尖る＝**belief sharpening**。従来のハード整合
+フィルタ＋一様抽選の一般化で、完全一致が消えてもミラーへ崩れず最近似デッキへ滑らかに縮退する。訓練ゼロ・
+推論時のみのレバーで、候補プールが実 replay で増えるほど当たる。[determinize.py](../../src/determinize.py)
+`pick_opponent_deck`。
+
 ### time_budget / c_puct / iters_per_det / sims / dets
 - `time_budget`: ISMCTS の1手あたり思考秒。大きいほど強いが遅い。
 - `c_puct` / `c`: 探索ボーナスの係数（探索 vs 活用のバランス）。

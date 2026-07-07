@@ -38,7 +38,7 @@
 |---|---|
 | [agents.py](../../src/agents.py) | heuristic 操縦（貪欲・速いが特性/効果/トレーナーは使わない） |
 | [ismcts.py](../../src/ismcts.py) | ISMCTS 操縦（determinized UCT）。`make_ismcts_agent`／蒸留用 `ismcts_aggregate`／接地floor用 `evaluate_actions_by_rollout`（手を実地ロールアウト評価） |
-| [determinize.py](../../src/determinize.py) | 隠れ情報の決定化（相手山札/手札のサンプリング推定） |
+| [determinize.py](../../src/determinize.py) | 隠れ情報の決定化（相手山札/手札のサンプリング）。`pick_opponent_deck`＝相手可視札を証拠に実メタ候補群を**ベイズ重み付け**（exp(-β·misses)）して相手デッキ推定（§26・belief sharpening・訓練ゼロの推論時レバー） |
 | [nn_mcts.py](../../src/nn_mcts.py) | NN 誘導 MCTS（PUCT）。葉を評価器で評価。`aggregate_visits`／`make_nn_mcts_agent(floor_rollouts=)` で接地 floor（pilot≥heuristic） |
 | [nn_eval.py](../../src/nn_eval.py) | 学習済み PVNet を nn_mcts 用の評価器 `evaluator(obs)->(value, priors)` に変換。`wrap_board_bonus`＝value への盤面補正の注入（board-blind の即効処置・α=0.2） |
 | [evaluation.py](../../src/evaluation.py) | デッキ×操縦の評価ヘルパ `eval_deck_vs_meta`（eval-deck / champion-gate 共用。旧 scripts/eval_deck.py から移設＝スクリプト間 import の解消） |

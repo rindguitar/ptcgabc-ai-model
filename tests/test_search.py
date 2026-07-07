@@ -80,18 +80,19 @@ def test_determinize_counts():
 
 
 def test_pick_opponent_deck():
-    """観測整合の候補が選ばれ、無ければ fallback になる."""
+    """ベイズ重み付け（§26）: 整合候補が圧倒し、完全一致無しでも最近似へ縮退."""
     deck = read_deck(DECK)
     rng = random.Random(0)
-    obs = _advance_to_main(deck, rng)
+    obs = _advance_to_main(deck, rng)  # self-match ＝相手も deck を使用（misses=0）
     try:
         assert obs is not None
         wrong = [1] * 60  # 基本エネのみ（相手の場のポケモン等を含まない＝非整合）
-        # 整合候補(deck)があれば deck が選ばれる
-        assert pick_opponent_deck(obs, [deck, wrong], wrong, rng) == deck
-        # 整合候補が無ければ fallback
-        assert pick_opponent_deck(obs, [wrong], deck, rng) == deck
-        # 候補なし → fallback
+        # 整合候補(deck, misses=0)は非整合(wrong)より圧倒的に多く選ばれる
+        picks = [pick_opponent_deck(obs, [deck, wrong], wrong, rng) for _ in range(50)]
+        assert picks.count(deck) > picks.count(wrong)
+        # 完全一致が無くても最近似候補へ縮退＝ミラー fallback へ崩れない（§26 の狙い）
+        assert pick_opponent_deck(obs, [wrong], deck, rng) == wrong
+        # 候補プールなし → 従来どおり fallback
         assert pick_opponent_deck(obs, None, deck, rng) == deck
     finally:
         battle_finish()

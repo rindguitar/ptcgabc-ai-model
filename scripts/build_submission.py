@@ -122,18 +122,26 @@ def build(
         # 学習済み重みを root 直下 pvnet.pt に固定名で同梱（main.py の net_path と一致させる）
         shutil.copy(net_path, os.path.join(build_dir, "pvnet.pt"))
 
-    # 相手候補デッキ群（観測整合の相手デッキ推定用）。中立名で同梱（Pokémon 名を避ける）。
+    # 相手候補デッキ群（観測整合の相手デッキ推定＝ベイズ事前分布）。中立名で同梱
+    # （Pokémon 名を避ける）。実 replay から抽出した相手デッキ（data/replays/opp_decks/）を
+    # 優先し、無ければ data/*.csv にフォールバック。実メタが多いほど推定が当たる＝データが
+    # 増えるほど強くなるループ。同一構成は重複除去する。
     opp_dir = os.path.join(build_dir, "opp_decks")
     os.makedirs(opp_dir)
-    idx = 0
-    for p in sorted(glob.glob(os.path.join(ROOT, "data", "*.csv"))):
+    real = sorted(glob.glob(os.path.join(ROOT, "data", "replays", "opp_decks", "*.csv")))
+    sources = real or sorted(glob.glob(os.path.join(ROOT, "data", "*.csv")))
+    idx, seen = 0, set()
+    for p in sources:
         try:
             d = [int(x) for x in open(p).read().splitlines() if x.strip()]
         except ValueError:
             continue
-        if len(d) == 60:
+        key = tuple(sorted(d))
+        if len(d) == 60 and key not in seen:
+            seen.add(key)
             shutil.copy(p, os.path.join(opp_dir, f"opp_{idx}.csv"))
             idx += 1
+    print(f"相手候補デッキ {idx} 個を同梱（source={'replays' if real else 'data'}）")
 
     os.makedirs(os.path.dirname(out_tar) or ".", exist_ok=True)
     names = sorted(os.listdir(build_dir))
