@@ -1,7 +1,12 @@
 """訓練済み NN 操縦の強さ評価（Phase 3・torch・Docker）.
 
 同一デッキで NN-MCTS(--net で指定したネット) vs 相手（heuristic / ismcts）を対戦させ、勝率を測る。
-これで「訓練で操縦が強くなったか」を確認する。席入替で先手有利を打ち消す。
+これで「訓練で操縦が強くなったか」を大まかに確認する。席入替で先手有利を打ち消す。
+
+⚠️ **net A/B（どちらのネットが強いか）の確定判断にこれ（特に --vs ismcts のミラー）を使わないこと**。
+同一デッキ・単一相手のミラーは非中立リファレンスで、注入等との相互作用で差を過大/過小評価する
+（design-decisions §25 訂正: ミラーで operative 0.675>>replay 0.500 が実メタでは同点だった実例）。
+net の比較は **eval_deck.py（eval-deck）で実メタ相手プールに対して**行う（外部基準・非ミラー）。
 
 実行（Docker）:
     make exec CMD="python scripts/eval_net.py --games 20 --sims 64"
