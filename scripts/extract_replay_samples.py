@@ -38,9 +38,12 @@ def _team_names(ep: dict) -> list[str]:
     return ep.get("info", {}).get("TeamNames") or ["?", "?"]
 
 
-def _z_for_seat(ep: dict, seat: int) -> float:
-    r = ep.get("rewards") or [0, 0]
+def _z_for_seat(ep: dict, seat: int) -> float | None:
+    """その席の勝敗 z。rewards が欠損（エラー/タイムアウトで結果なし）なら None."""
+    r = ep.get("rewards") or [None, None]
     mine, opp = r[seat], r[1 - seat]
+    if mine is None or opp is None:
+        return None
     if mine == opp:
         return 0.5
     return 1.0 if mine > opp else 0.0
@@ -59,6 +62,8 @@ def extract_episode(ep: dict, meta) -> list[tuple[np.ndarray, float]]:
     steps = ep.get("steps") or []
     for seat in (0, 1):
         z = _z_for_seat(ep, seat)
+        if z is None:  # 結果欠損（エラー/タイムアウト）＝value ラベル無し→この席はスキップ
+            continue
         for step in steps:
             obsd = step[seat].get("observation")
             if not obsd:
