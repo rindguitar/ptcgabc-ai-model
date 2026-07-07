@@ -34,9 +34,15 @@ LEAGUE_SEED    ?= $(shell python3 -c 'import random;print(random.randrange(2**31
 LEAGUE_ARGS    ?=
 LEAGUE_EXTRA   ?= $(wildcard models/champion_deck.csv)  # 既存champを探索の種に自動取込
 _EXTRA_FLAG     = $(if $(LEAGUE_EXTRA),--extra-seeds $(LEAGUE_EXTRA),)
+# 探索の相手＝実メタからランダム抽出（毎実行で別の SEARCH_SAMPLE 個＝特定デッキへの過適合を回避）。
+# gauntlet（実メタ・make gauntlet-real）が無ければ league 既定（公式サンプル）にフォールバック。
+SEARCH_SAMPLE ?= 5
+SEARCH_SEEDS  := $(shell ls models/gauntlet/*.csv 2>/dev/null | shuf -n $(SEARCH_SAMPLE))
+_SEEDS_FLAG    = $(if $(strip $(SEARCH_SEEDS)),--seeds $(SEARCH_SEEDS),)
 # NN 操縦の既定ネット（凍結中は operative 運用・§25）。distill 再開時は distill_best 優先。
 NN_NET  ?= $(firstword $(wildcard models/pvnet_distill_best.pt) models/pvnet_operative.pt)
 NN_SIMS ?= 64
+SEARCH_SIMS ?= 32   # 探索の NN-MCTS sims（sims32≈64＝探索専用に半減。eval-deck 判定は 64 のまま）
 
 # --- ヘルプ -----------------------------------------------------------------
 help: ## このヘルプを表示
@@ -161,12 +167,15 @@ JUDGE_BONUS ?= 0.2   # 盤面補正 α（提出と判定で同値・§24）
 JUDGE_FLAGS ?= --pilot nn --net $(NN_NET) --nn-sims $(NN_SIMS) \
 	--floor-rollouts $(JUDGE_FLOOR) --board-bonus $(JUDGE_BONUS)
 
-# gate は毎サイクルの相対フィルタなので軽量（sims32・floor4）。eval-deck は提出忠実(64/8)のまま。
-# 厳格 gate に戻すには GATE_SIMS=64 GATE_FLOOR=8。理由は design-decisions.md。
+# gate は毎サイクルの相対フィルタなので軽量（sims32・floor4・相手は実メタ上位 GATE_OPPS）。
+# eval-deck は提出忠実(64/8)・相手16のまま。厳格 gate は GATE_SIMS=64 GATE_FLOOR=8 GATE_OPPS=16。
 GATE_SIMS  ?= 32
 GATE_FLOOR ?= 4
 GATE_JUDGE_FLAGS ?= --pilot nn --net $(NN_NET) --nn-sims $(GATE_SIMS) \
 	--floor-rollouts $(GATE_FLOOR) --board-bonus $(JUDGE_BONUS)
+# gate の相手＝実メタ頻度上位 GATE_OPPS（無ければ champion_gate 既定にフォールバック）。
+GATE_OPPS ?= 8
+_GATE_META = $(if $(strip $(wildcard models/gauntlet/*.csv)),--meta $(wordlist 1,$(GATE_OPPS),$(sort $(wildcard models/gauntlet/*.csv))),)
 
 # デッキ強さの確定評価（vs 相手プール・floored NN 判定）。既定 champion_best（提出に使う最良）。
 # 別デッキは EVAL_DECK=... 、厳密化は EVAL_DECK_GAMES=40。
@@ -181,7 +190,7 @@ eval-deck: ## デッキ強さの確定評価（vs 相手プール・floored NN �
 GATE_GAMES ?= 20
 GATE_ARGS  ?=
 champion-gate: ## league 後の keep-best 判定（新が best を超えた時だけ昇格・Docker）
-	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
+	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(_GATE_META) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 
 # デッキ探索→gate を1サイクル（best起点・確実改善だけ採用）。RATCHET_ITERS で時間調整
 # （ISMCTS探索: 1≒約50分/3≒約1.5h/6≒約3h）。league は毎反復 checkpoint＝途中で止めても再開可。
@@ -192,9 +201,9 @@ ratchet: ## デッキ探索→ゲート1サイクル（best起点／時短: RATC
 		echo "起点を champion_best に設定（best から探索）"; \
 	else echo "best 未作成: 現 champion_deck から開始（gate が初回 best を作成）"; fi
 	$(PY) src/league.py --cap 12 --iters $(RATCHET_ITERS) --games 4 --pop 6 --gens 3 \
-		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) \
+		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) $(_SEEDS_FLAG) \
 		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
+	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(_GATE_META) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 	@echo "ratchet 完了。最良は models/champion_best.csv（提出はこれを使う）"
 
 ratchet-overnight: ## 一晩版 ratchet（探索を多め iters20・約6h・翌朝 eval-deck で確認）
@@ -207,9 +216,9 @@ ratchet-nn: ## NN操縦の ratchet（探索=NN-MCTS／判定=floored NN・Docker
 		echo "起点を champion_best に設定（best から探索）"; \
 	else echo "best 未作成: 現 champion_deck から開始（gate が初回 best を作成）"; fi
 	$(RUN) python src/league.py --cap 12 --iters $(RATCHET_ITERS) --games 4 --pop 6 --gens 3 \
-		--plateau 99 --seed $(LEAGUE_SEED) --pilot nn --net $(NN_NET) --nn-sims $(NN_SIMS) \
-		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
+		--plateau 99 --seed $(LEAGUE_SEED) --pilot nn --net $(NN_NET) --nn-sims $(SEARCH_SIMS) \
+		$(_SEEDS_FLAG) --max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
+	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(_GATE_META) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 	@echo "ratchet-nn 完了。最良は models/champion_best.csv（提出はこれを使う）"
 
 # === 提出 ==================================================================
