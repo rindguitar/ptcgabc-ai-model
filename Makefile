@@ -26,20 +26,15 @@ RUN     := $(COMPOSE) run --rm dev
         submission build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキ探索（ratchet が内部で使う）の既定パラメータ --------------------
-# 操縦は ISMCTS（特性/効果/トレーナーを扱える）。相手は models/gauntlet/ があればそれ（多様化）。
-# 各反復でチェックポイント保存＝止めても再開可。LEAGUE_SEED は実行ごとにランダム（毎回別探索）。
+# 探索操縦・相手プール・シード等。仕組みは docs/learning/architecture.md 参照。
 LEAGUE_PILOT      ?= ismcts
 LEAGUE_TIMEBUDGET ?= 0.03
 _PILOT_FLAGS       = --pilot $(LEAGUE_PILOT) --time-budget $(LEAGUE_TIMEBUDGET)
 LEAGUE_SEED    ?= $(shell python3 -c 'import random;print(random.randrange(2**31))')
 LEAGUE_ARGS    ?=
-# 既存チャンピオンを固定の試験官(seed)に自動取り込み（探索の起点・無ければ相手プールのみ）。
-LEAGUE_EXTRA   ?= $(wildcard models/champion_deck.csv)
+LEAGUE_EXTRA   ?= $(wildcard models/champion_deck.csv)  # 既存champを探索の種に自動取込
 _EXTRA_FLAG     = $(if $(LEAGUE_EXTRA),--extra-seeds $(LEAGUE_EXTRA),)
-# NN 操縦の既定ネット。improve で ISMCTS を超えた net を優先し、無ければ蒸留(床)にフォールバック
-# （ratchet-nn は「ISMCTS を超えた強い NN」で探索するのが目的なので improve_best を使う）。
-# NN 凍結（self-play/distill いずれも盤面信号を学べず=データに無い・§23/§22）。運用は v2.3 形式の
-# operative net（seed 由来）＋盤面補正注入(JUDGE_BONUS)で固定。将来 distill を再開したら distill_best 優先。
+# NN 操縦の既定ネット（凍結中は operative 運用・§25）。distill 再開時は distill_best 優先。
 NN_NET  ?= $(firstword $(wildcard models/pvnet_distill_best.pt) models/pvnet_operative.pt)
 NN_SIMS ?= 64
 
@@ -78,12 +73,7 @@ bench: ## baseline 評価（ヒューリスティック vs ランダム・100試
 check: lint fmt-check test ## lint・fmt-check・test を順に実行
 
 # === Phase 3 NN（Docker・torch/GPU）=========================================
-# 学習デッキ群: チャンピオン＋メタを巡回（1デッキ過学習を避け汎用 pilot 化）。先頭=評価固定。
-# 訓練デッキプール＝**混合**: champion_repaired（実メタ構成の主力＝これを乗りこなす操縦を
-# 育てる。旧エネ過多 champion への過適合が操縦とデッキの共適応ロックの原因だった）＋
-# champion_best（現提出デッキ）＋公式メタ（サイドレースのアンカー）＋実メタ上位6（replay
-# 抽出・実戦の終局分布）。実メタ 100% にしない＝レート帯過適合を避ける。
-# 再訓練はレート帯ごとに行わず、replay 分析の敗因分布が大きく変わった時だけ（データ駆動）。
+# 訓練デッキ群（混合＝汎用 pilot 化・過学習回避）。先頭=評価固定。構成の意図は design-decisions.md。
 TRAIN_DECKS ?= $(wildcard models/champion_repaired.csv) \
 	$(firstword $(wildcard models/champion_best.csv) data/deck.csv) \
 	$(wildcard data/*_Deck.csv) $(wordlist 1,6,$(sort $(wildcard models/gauntlet/*.csv)))
@@ -92,22 +82,13 @@ TRAIN_ARGS  ?=
 train: ## NN生 self-play（上級者向け・例: make train TRAIN_ARGS="--resume --iterations 50")
 	$(RUN) python scripts/train_alphazero.py $(_DECKS_FLAG) $(TRAIN_ARGS)
 
-# 蒸留: ISMCTS 教師を真似て安定した強い土台を作る。複数デッキ巡回＝汎用 pilot 化。
-# self-play(pvnet.pt)とは別ファイルに保存し --resume で「ちょくちょく継ぎ足し」できる（日中1h×複数回で蓄積）。
-# 教師は強いほど良い(DISTILL_TB↑)が収集は遅い。最初から作り直すなら rm models/pvnet_distill.pt。
-# 評価は: make eval-net EVAL_ARGS="--net models/pvnet_distill_best.pt"
+# 蒸留: ISMCTS 教師を真似て安定した土台を作る（--resume で継ぎ足し・並列収集）。詳細は distill.py。
 DISTILL_OUT   ?= models/pvnet_distill.pt
 DISTILL_BEST  ?= models/pvnet_distill_best.pt
-# 教師(ISMCTS)の1手秒。診断で **TB=0.25 は heuristic 未満(0.375)＝弱教師**、TB=0.5 で 0.733、
-# 1.0 は誤差内の微増で2倍遅い → **0.5 が最適点**。弱教師を蒸留しないよう既定 0.5。
-DISTILL_TB    ?= 0.5
+DISTILL_TB    ?= 0.5   # 教師ISMCTSの1手秒（0.5が最適点＝弱教師回避・design-decisions）
 DISTILL_ITERS ?= 60
-# 方策ターゲット温度。0=one-hot（既定・浅い teacher で安全）。>0 で訪問分布 soft-π を解放
-# （soft は teacher を深くした時=DISTILL_TB↑ でのみ有効。例: 鋭め soft なら 0.5）。
-DISTILL_TEMP  ?= 0
-# 教師対戦の並列収集数。各試合は独立＝コア数まで上げると「1回あたりの試行数」がほぼ線形に増える。
-# 既定は nproc-1（1コアを OS/GPU供給に空けて機械の無反応を防ぐ）。HT 環境では物理コア数推奨。
-DISTILL_WORKERS ?= $(shell n=$$(nproc 2>/dev/null || echo 2); echo $$((n>1?n-1:1)))
+DISTILL_TEMP  ?= 0     # 方策温度 0=one-hot（>0で soft-π＝深い教師時のみ有効）
+DISTILL_WORKERS ?= $(shell n=$$(nproc 2>/dev/null || echo 2); echo $$((n>1?n-1:1)))  # 並列収集数(nproc-1)
 DISTILL_ARGS  ?=
 distill: ## ISMCTS蒸留（複数デッキ・強い教師・resume継ぎ足し・並列収集）。長さは DISTILL_ITERS で
 	$(RUN) python scripts/train_alphazero.py --teacher ismcts --resume \
@@ -119,26 +100,18 @@ distill: ## ISMCTS蒸留（複数デッキ・強い教師・resume継ぎ足し�
 distill-1h: ## 約1時間の蒸留（前回に継ぎ足し・日中ちょくちょく用）
 	$(MAKE) distill DISTILL_ITERS=50
 
-distill-overnight: ## 強い教師(TB=0.5)で蒸留（大容量netの収束に・約4-5h目安）。長時間の伸びは improve 側で
+distill-overnight: ## 強い教師で蒸留（大容量netの収束・約4-5h目安）
 	$(MAKE) distill DISTILL_ITERS=120
 
-# 蒸留は教師(ISMCTS)が天井＝五分まで。improve は **蒸留ネットを種に self-play** で天井を破る。
-# MCTS(NN) は NN 単体より強い方策改善演算子なので、その訪問分布(soft-π)を学べば ISMCTS を
-# 超えうる（以前の崩壊は弱いネット始点が原因。≈ISMCTS の種＋best保存＋低LR＋replayで安定）。
-# 収集は CPU 並列（NN-MCTS は batch=1 推論＝GPUより CPU 向き）。判定は make eval-net EVAL_VS=ismcts。
+# improve: 蒸留ネットを種に self-play で ISMCTS の天井を破る（CPU並列収集）。詳細は selfplay.py。
 IMPROVE_OUT   ?= models/pvnet_improve.pt
 IMPROVE_BEST  ?= models/pvnet_improve_best.pt
 IMPROVE_SEED  ?= $(firstword $(wildcard models/pvnet_distill_best.pt) models/pvnet_operative.pt)
 IMPROVE_ITERS ?= 40
-# 収集時の探索深度（--sims と独立に制御可能）。当初 128（深い収集=質の賭け）を予定したが、
-# 実測で sims32(0.575)≈sims64(0.500)＝**深さの効果はこの net では 32 で頭打ち**と判明し 64 に。
-# 深さでなく value の質が律速。深い収集は net が強くなって曲線が立ってきたら再検討。
-IMPROVE_COLLECT_SIMS ?= 64
-# 収集評価器への盤面補正。self-play 崩壊の切り分け中は 0（§21: 一度に一変更）。
-# self-play が安定してから単独で再検証する（提出/判定の注入 JUDGE_BONUS とは独立）。
-IMPROVE_COLLECT_BONUS ?= 0
+IMPROVE_COLLECT_SIMS ?= 64   # 収集探索深度（sims32≈64で頭打ち・design-decisions）
+IMPROVE_COLLECT_BONUS ?= 0   # 収集器への盤面補正（切り分け中は0）
 IMPROVE_ARGS  ?=
-improve: ## self-playでISMCTS超えを狙う（蒸留種・深い収集＋根ノイズ・EMA・best保存・drift安全弁）
+improve: ## self-playでISMCTS超えを狙う（蒸留ネットを種に・Docker）。長さは IMPROVE_ITERS で
 	$(RUN) python scripts/train_alphazero.py --teacher selfplay --resume --resume-from-best \
 		--init-from $(IMPROVE_SEED) --out $(IMPROVE_OUT) --best-out $(IMPROVE_BEST) \
 		--iterations $(IMPROVE_ITERS) --workers $(DISTILL_WORKERS) --ema \
@@ -148,13 +121,8 @@ improve: ## self-playでISMCTS超えを狙う（蒸留種・深い収集＋根�
 improve-1h: ## 約1時間の improve（前回に継ぎ足し・日中ちょくちょく用）
 	$(MAKE) improve IMPROVE_ITERS=30
 
-# 確定判断用の offline 評価（試合数を増やして運の振れを抑える）。学習中の24は傾向把握用、
-# こちらは 40+ で「NN は heuristic/ISMCTS を超えたか」を判断する。例: make eval-net EVAL_GAMES=100
-# 既定ネットは「improve_best > distill_best > pvnet」の順で存在する最良を使う（古い pvnet.pt を
-# 黙って測る事故を防ぐ）。別ネットを測るなら make eval-net EVAL_NET=models/pvnet_distill_best.pt。
-# 既定 vs=meta＝実メタ相手プール（非ミラー・net 判定の外部基準・§25）。games は相手1体あたり
-# なのでプール数×games 試合になる（16デッキ×10＝160試合が目安。40 は重い→ EVAL_GAMES=10 推奨）。
-# 注入 α=JUDGE_BONUS を既定で載せ提出構成に合わせる。ミラー確認は EVAL_VS=heuristic/ismcts。
+# NN の確定判断用 評価。既定 vs=meta＝実メタ相手プール（非ミラー・§25）。games は相手1体あたり
+# ＝プール数×games（16デッキ×10＝160試合目安）。例: EVAL_NET=... / EVAL_VS=ismcts（ミラー確認）。
 EVAL_GAMES ?= 10
 EVAL_VS    ?= meta
 EVAL_NET   ?= $(firstword $(wildcard models/pvnet_distill_best.pt) models/pvnet_operative.pt)
@@ -163,77 +131,60 @@ eval-net: ## 訓練済みNNの確定判断用 評価（既定: 最良net・vs �
 	$(RUN) python scripts/eval_net.py --net $(EVAL_NET) --vs $(EVAL_VS) --games $(EVAL_GAMES) \
 		--board-bonus $(JUDGE_BONUS) $(EVAL_ARGS)
 
-# policy 診断: net が手を順位付けできているか／文脈無視のショートカットか／教師が弱くないかを測る。
-# 「value は学べるが policy は学べない」の原因切り分け用。
+# NN policy 診断（手を順位付けできるか等の切り分け）。詳細は diagnose_policy.py。
 DIAGNOSE_ARGS ?=
-diagnose: ## NN policy 診断（shortcut度/教師再現度/文脈感度/集中度/教師強度・Docker）
+diagnose: ## NN policy 診断（手を順位付けできるか等の切り分け・Docker）
 	$(RUN) python scripts/diagnose_policy.py --net $(EVAL_NET) $(DIAGNOSE_ARGS)
 
-# Kaggle replay の分析（日次運用: DL → make replays → JSON 削除）。episodes_log.csv に
-# 冪等で永続化し、相手デッキを opp_decks/ に抽出する。提出の A/B はフォルダ名が
-# ラベルになる（data/replays/nn/・nn_repaired/・ismcts/ 等）。ホスト(CPU)。
+# Kaggle replay 分析（日次: DL → make replays → JSON削除）。集計＋相手デッキ抽出。詳細は analyze_replays.py。
 REPLAYS_ARGS ?=
 replays: ## replay 分析（勝率/敗因/時間の集計＋実メタデッキ抽出・冪等・ホスト）
 	$(PY) scripts/analyze_replays.py $(REPLAYS_ARGS)
 
-# 実戦 replay を NN の value 学習に混ぜる（唯一データに盤面信号が入る経路・§24）。
-# ①抽出（ホスト・冪等・JSON はこの後削除可）→ ②value 頭だけ fine-tune（Docker/torch）→ diagnose。
+# 実戦 replay を value 学習に混ぜる経路（§25）。①抽出（ホスト）→ ②value頭 fine-tune（Docker）。
 replay-extract: ## replay JSON から value 学習サンプル (state,z) を抽出・永続化（ホスト）
 	$(PY) scripts/extract_replay_samples.py
 REPLAY_TUNE_INIT ?= models/pvnet_operative.pt
 replay-tune: ## 実戦 z で value 頭を fine-tune（policy 不変・Docker）→ pvnet_replay.pt
 	$(RUN) python scripts/replay_value_tune.py --init $(REPLAY_TUNE_INIT) --out models/pvnet_replay.pt $(REPLAY_TUNE_ARGS)
 
-# 実メタ較正: replay 抽出デッキ（analyze_replays.py が蓄積）で判定プールを置換。
-# レートが上がったら直近 replay を取り直して再実行＝ローリング較正（レート帯バイアス対策）。
+# 実メタ較正: replay 抽出デッキで判定プールを置換。レートが上がったら取り直して再実行。
 GAUNTLET_N ?= 16
 gauntlet-real: ## 実メタ（replay抽出）で判定ガントレットを置換（遭遇頻度上位 GAUNTLET_N 件）
 	$(PY) scripts/gauntlet_from_replays.py --n $(GAUNTLET_N)
 
-# === 判定操縦（提出と同じ floored NN に統一・2026-07-05） ====================
-# 提出操縦が floored NN になった以上、デッキの判定（gate/eval-deck）も同じ操縦で行う
-# （ISMCTS 判定のままだと「ISMCTS が使いやすいデッキ」を選び続ける）。torch が要るため
-# Docker($(RUN)) 実行。ISMCTS 判定に戻すには JUDGE_FLAGS="--pilot ismcts --time-budget 0.05"。
+# === 判定操縦（提出と同じ floored NN に統一）===============================
+# gate/eval-deck は提出と同じ操縦で判定する（詳細は design-decisions.md）。Docker 実行。
+# ISMCTS 判定に戻すには JUDGE_FLAGS="--pilot ismcts --time-budget 0.05"。
 JUDGE_FLOOR ?= 8
-# 盤面補正 α（value の board-blind への即効処置・注入テストで 0.2 が最良 +0.075）。
-# 提出（submission-nn）と判定を常に同じ操縦にするため両方に同じ値を使う。
-JUDGE_BONUS ?= 0.2
+JUDGE_BONUS ?= 0.2   # 盤面補正 α（提出と判定で同値・§24）
 JUDGE_FLAGS ?= --pilot nn --net $(NN_NET) --nn-sims $(NN_SIMS) \
 	--floor-rollouts $(JUDGE_FLOOR) --board-bonus $(JUDGE_BONUS)
 
-# gate（keep-best の相対フィルタ・毎 ratchet サイクルで走る）は軽くする。new/best を**同条件**で
-# 比べる相対判定なので、floor は両者に等しく効いて相殺・sims も設計上 32≈64（強度差なし）＝
-# 提出より軽くしても順序は保たれる。GATE_GAMES・確認評価は据え置き（据置は誤昇格対策で重要）。
-# eval-deck（絶対強度の確定評価・随時）は JUDGE_FLAGS のまま＝提出忠実に保つ。厳格 gate は
-# GATE_SIMS=64 GATE_FLOOR=8 で上書きすれば提出忠実に戻せる。
+# gate は毎サイクルの相対フィルタなので軽量（sims32・floor4）。eval-deck は提出忠実(64/8)のまま。
+# 厳格 gate に戻すには GATE_SIMS=64 GATE_FLOOR=8。理由は design-decisions.md。
 GATE_SIMS  ?= 32
 GATE_FLOOR ?= 4
 GATE_JUDGE_FLAGS ?= --pilot nn --net $(NN_NET) --nn-sims $(GATE_SIMS) \
 	--floor-rollouts $(GATE_FLOOR) --board-bonus $(JUDGE_BONUS)
 
-# デッキ強さの確定評価（vs 相手プール・floored NN 判定・多めの試合）。league内部の小サンプル
-# (6試合)では判定できない「本当にデッキが強くなったか」を測る。champions/ のバックアップと比較可。
-# 既定は champion_best（＝提出に使う最良）を優先。champion_deck は ratchet 後は棄却候補のことが
-# あり誤読を招くため。別デッキを測るなら make eval-deck EVAL_DECK=models/champions/champ_XXXX.csv。
+# デッキ強さの確定評価（vs 相手プール・floored NN 判定）。既定 champion_best（提出に使う最良）。
+# 別デッキは EVAL_DECK=... 、厳密化は EVAL_DECK_GAMES=40。
 EVAL_DECK       ?= $(firstword $(wildcard models/champion_best.csv) models/champion_deck.csv)
-# 相手が gauntlet(16デッキ)なら 20試合でも合計十分（平均は安定・最悪は相手数で網羅）。厳密化は ↑。
 EVAL_DECK_GAMES ?= 20
 EVAL_DECK_ARGS  ?=
 eval-deck: ## デッキ強さの確定評価（vs 相手プール・floored NN 判定・既定 champion・Docker）
 	$(RUN) python scripts/eval_deck.py --deck $(EVAL_DECK) --games $(EVAL_DECK_GAMES) \
 		$(JUDGE_FLAGS) $(EVAL_DECK_ARGS)
 
-# 信頼ラチェット: league 後に挟むと、新チャンピオンが best を信頼試合数で上回った時だけ昇格。
-# ノイズドリフトを止め、回し続けるほど models/champion_best.csv が単調に良くなる。提出は best を使う。
-# 相手が gauntlet(16)なら 20試合で合計十分。厳密に見たいときは GATE_GAMES=40。
+# 信頼ラチェット gate: 新が best を上回った時だけ昇格（ノイズドリフト阻止）。厳密化は GATE_GAMES=40。
 GATE_GAMES ?= 20
 GATE_ARGS  ?=
-champion-gate: ## league 後の keep-best 判定（floored NN 判定・新が best を超えた時だけ昇格・Docker）
+champion-gate: ## league 後の keep-best 判定（新が best を超えた時だけ昇格・Docker）
 	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 
-# デッキ探索→ゲートを1サイクル（best起点・確実改善だけ採用）。回すほど champion_best が単調改善。
-# 探索(league)は速い5メタ・判定(gate)は多様 gauntlet。RATCHET_ITERS で時間調整
-# （1≒約50分・3≒約1.5h・6≒約3h）。league はチェックポイント保存＝途中で止めても無駄にならない。
+# デッキ探索→gate を1サイクル（best起点・確実改善だけ採用）。RATCHET_ITERS で時間調整
+# （ISMCTS探索: 1≒約50分/3≒約1.5h/6≒約3h）。league は毎反復 checkpoint＝途中で止めても再開可。
 RATCHET_ITERS ?= 3
 ratchet: ## デッキ探索→ゲート1サイクル（best起点／時短: RATCHET_ITERS=1, じっくり: =6）
 	@if [ -f models/champion_best.csv ]; then \
@@ -249,8 +200,7 @@ ratchet: ## デッキ探索→ゲート1サイクル（best起点／時短: RATC
 ratchet-overnight: ## 一晩版 ratchet（探索を多め iters20・約6h・翌朝 eval-deck で確認）
 	$(MAKE) ratchet RATCHET_ITERS=20
 
-# NN 操縦版の ratchet（Docker/GPU）。探索(league)を蒸留 NN-MCTS で回す＝ISMCTS の ~1/4 時間で
-# 同等強度＝同じ時間で「より多く探索」できる。判定(gate)も floored NN（提出と同じ操縦）に統一。
+# NN 操縦版 ratchet（探索=NN-MCTS＝ISMCTS の ~1/4 時間・判定=floored NN）。Docker。
 ratchet-nn: ## NN操縦の ratchet（探索=NN-MCTS／判定=floored NN・Docker）
 	@if [ -f models/champion_best.csv ]; then \
 		cp models/champion_best.csv models/champion_deck.csv; \
@@ -263,8 +213,7 @@ ratchet-nn: ## NN操縦の ratchet（探索=NN-MCTS／判定=floored NN・Docker
 	@echo "ratchet-nn 完了。最良は models/champion_best.csv（提出はこれを使う）"
 
 # === 提出 ==================================================================
-# 同梱デッキは champion_best.csv を優先（ratchet の最良＝単調改善の到達点）。
-# champion_deck.csv は ratchet 開始時の起点で、終了時に best へ更新されない＝古い可能性がある。
+# 同梱デッキは champion_best を優先（無ければ champion_deck）。相手推定プールも同梱（§26）。
 submission: ## 提出パッケージ models/submission.tar.gz を作成（champion_best＋ISMCTS＋cg＋deck）
 	@deck=models/champion_best.csv; \
 	if [ ! -f "$$deck" ]; then deck=models/champion_deck.csv; \
@@ -272,8 +221,7 @@ submission: ## 提出パッケージ models/submission.tar.gz を作成（champi
 	else echo "同梱デッキ（最良）: $$deck"; fi; \
 	$(PY) scripts/build_submission.py --deck $$deck
 
-# NN 操縦（floored NN-MCTS）の提出。net は最良（improve_best > distill_best）を自動選択。
-# 提出前に make smoke-submission で 600 秒クロックに収まるか実測すること（issue #4）。
+# NN 操縦の提出。提出前に make smoke-submission で 600秒クロックを実測（issue #4）。
 SUBMISSION_NET ?= $(firstword $(wildcard models/pvnet_distill_best.pt) models/pvnet_operative.pt)
 submission-nn: ## NN操縦の提出パッケージ models/submission_nn.tar.gz（floored NN＋最良net）
 	@deck=models/champion_best.csv; \
