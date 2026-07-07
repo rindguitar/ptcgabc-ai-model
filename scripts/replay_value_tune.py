@@ -63,6 +63,7 @@ def main() -> None:
         net = load_net(args.init, device)
     except RuntimeError:
         net = load_net_warmstart(args.init, device)
+    net.to(device)  # load_net は device へ移さない（開始時 val_loss の cuda/cpu 衝突を防ぐ）
 
     def val_loss() -> float:
         net.eval()
