@@ -47,7 +47,7 @@
 | モジュール | 役割 |
 |---|---|
 | [net.py](../../src/net.py) | PVNet（policy/value の2出力・MLP）。既定 hidden256/trunk2層・**埋め込み無し**(card_emb=0)＝データ量に合わせ right-size。card_emb>0 で cardId Embedding 解放（末尾 id 列を分離）。汎化する効果/KO/弱点 float 特徴は残す |
-| [train.py](../../src/train.py) | 学習ループ（value=BCE + policy=交差エントロピー）・保存/読込・`load_net_warmstart` |
+| [train.py](../../src/train.py) | 学習ループ（value=BCE + policy=交差エントロピー・`policy_weight=0`でvalue専用）・保存/読込・`load_net_warmstart` |
 | [distill.py](../../src/distill.py) | ISMCTS 教師の蒸留データ収集。温度で one-hot↔soft 1本化・CPU 並列収集 |
 | [selfplay.py](../../src/selfplay.py) | 自己対戦データ収集（improve の中核・訪問分布を soft-π に） |
 | [nn_collect.py](../../src/nn_collect.py) | self-play サンプルの **CPU 並列収集**（spawn・各workerがCPUにネット読込） |
@@ -77,6 +77,8 @@
 | [repair_deck.py](../../scripts/repair_deck.py) | - | デッキ構成を実メタ分布へ機械修復（中核は deck.repair_composition） |
 | [diagnose_value_board.py](../../scripts/diagnose_value_board.py) | - | value の盤面資源感度を2net比較（board-blind 診断） |
 | [smoke_submission.py](../../scripts/smoke_submission.py) | `smoke-submission` | 提出エージェントの煙テスト＋600秒クロック実測 |
+| [extract_replay_samples.py](../../scripts/extract_replay_samples.py) | `replay-extract` | replay JSON→value学習サンプル(state,z)を冪等抽出（両席・§25） |
+| [replay_value_tune.py](../../scripts/replay_value_tune.py) | `replay-tune` | 実戦zでvalue頭のみfine-tune（policy不変・唯一データに盤面信号が入る経路） |
 | [build_submission.py](../../scripts/build_submission.py) | `submission` | 提出 tar.gz を組み立て（操縦＋デッキ＋cg を同梱） |
 
 ## 追跡外（Git 管理しない）
