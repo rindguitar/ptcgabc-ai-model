@@ -38,7 +38,7 @@ LEAGUE_EXTRA   ?= $(wildcard models/champion_deck.csv)
 _EXTRA_FLAG     = $(if $(LEAGUE_EXTRA),--extra-seeds $(LEAGUE_EXTRA),)
 # NN 操縦の既定ネット。improve で ISMCTS を超えた net を優先し、無ければ蒸留(床)にフォールバック
 # （ratchet-nn は「ISMCTS を超えた強い NN」で探索するのが目的なので improve_best を使う）。
-NN_NET  ?= $(firstword $(wildcard models/pvnet_improve_best.pt) models/pvnet_distill_best.pt)
+NN_NET  ?= $(firstword $(wildcard models/pvnet_improve_best.pt) $(wildcard models/pvnet_distill_best.pt) models/pvnet_seed.pt)
 NN_SIMS ?= 64
 
 # --- ヘルプ -----------------------------------------------------------------
