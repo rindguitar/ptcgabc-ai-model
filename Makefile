@@ -152,12 +152,16 @@ improve-1h: ## 約1時間の improve（前回に継ぎ足し・日中ちょく�
 # こちらは 40+ で「NN は heuristic/ISMCTS を超えたか」を判断する。例: make eval-net EVAL_GAMES=100
 # 既定ネットは「improve_best > distill_best > pvnet」の順で存在する最良を使う（古い pvnet.pt を
 # 黙って測る事故を防ぐ）。別ネットを測るなら make eval-net EVAL_NET=models/pvnet_distill_best.pt。
-EVAL_GAMES ?= 40
-EVAL_VS    ?= heuristic
+# 既定 vs=meta＝実メタ相手プール（非ミラー・net 判定の外部基準・§25）。games は相手1体あたり
+# なのでプール数×games 試合になる（16デッキ×10＝160試合が目安。40 は重い→ EVAL_GAMES=10 推奨）。
+# 注入 α=JUDGE_BONUS を既定で載せ提出構成に合わせる。ミラー確認は EVAL_VS=heuristic/ismcts。
+EVAL_GAMES ?= 10
+EVAL_VS    ?= meta
 EVAL_NET   ?= $(firstword $(wildcard models/pvnet_distill_best.pt) models/pvnet_operative.pt)
 EVAL_ARGS  ?=
-eval-net: ## 訓練済みNNの確定判断用 評価（既定: 最良net・vs heuristic 40試合・Docker）
-	$(RUN) python scripts/eval_net.py --net $(EVAL_NET) --vs $(EVAL_VS) --games $(EVAL_GAMES) $(EVAL_ARGS)
+eval-net: ## 訓練済みNNの確定判断用 評価（既定: 最良net・vs 実メタ・各10試合・Docker）
+	$(RUN) python scripts/eval_net.py --net $(EVAL_NET) --vs $(EVAL_VS) --games $(EVAL_GAMES) \
+		--board-bonus $(JUDGE_BONUS) $(EVAL_ARGS)
 
 # policy 診断: net が手を順位付けできているか／文脈無視のショートカットか／教師が弱くないかを測る。
 # 「value は学べるが policy は学べない」の原因切り分け用。
