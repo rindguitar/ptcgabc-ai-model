@@ -21,7 +21,7 @@ RUN     := $(COMPOSE) run --rm dev
 
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
-        ratchet ratchet-overnight ratchet-nn gauntlet-real replays replay-extract replay-tune eval-deck champion-gate \
+        ratchet ratchet-overnight ratchet-nn ratchet-nn-overnight gauntlet-real replays replay-extract replay-tune eval-deck champion-gate \
         train distill distill-1h distill-overnight improve improve-1h eval-net diagnose \
         submission build rebuild shell jupyter gpu-check exec up down clean
 
@@ -220,6 +220,9 @@ ratchet-nn: ## NN操縦の ratchet（探索=NN-MCTS／判定=floored NN・Docker
 		$(_SEEDS_FLAG) --max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
 	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(_GATE_META) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 	@echo "ratchet-nn 完了。最良は models/champion_best.csv（提出はこれを使う）"
+
+ratchet-nn-overnight: ## NN操縦の一晩版 ratchet（iters15・約5-6h目安・翌朝 eval-deck で確認）
+	$(MAKE) ratchet-nn RATCHET_ITERS=15
 
 # === 提出 ==================================================================
 # 同梱デッキは champion_best を優先（無ければ champion_deck）。相手推定プールも同梱（§26）。
