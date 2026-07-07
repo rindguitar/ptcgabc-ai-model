@@ -201,6 +201,16 @@ JUDGE_BONUS ?= 0.2
 JUDGE_FLAGS ?= --pilot nn --net $(NN_NET) --nn-sims $(NN_SIMS) \
 	--floor-rollouts $(JUDGE_FLOOR) --board-bonus $(JUDGE_BONUS)
 
+# gate（keep-best の相対フィルタ・毎 ratchet サイクルで走る）は軽くする。new/best を**同条件**で
+# 比べる相対判定なので、floor は両者に等しく効いて相殺・sims も設計上 32≈64（強度差なし）＝
+# 提出より軽くしても順序は保たれる。GATE_GAMES・確認評価は据え置き（据置は誤昇格対策で重要）。
+# eval-deck（絶対強度の確定評価・随時）は JUDGE_FLAGS のまま＝提出忠実に保つ。厳格 gate は
+# GATE_SIMS=64 GATE_FLOOR=8 で上書きすれば提出忠実に戻せる。
+GATE_SIMS  ?= 32
+GATE_FLOOR ?= 4
+GATE_JUDGE_FLAGS ?= --pilot nn --net $(NN_NET) --nn-sims $(GATE_SIMS) \
+	--floor-rollouts $(GATE_FLOOR) --board-bonus $(JUDGE_BONUS)
+
 # デッキ強さの確定評価（vs 相手プール・floored NN 判定・多めの試合）。league内部の小サンプル
 # (6試合)では判定できない「本当にデッキが強くなったか」を測る。champions/ のバックアップと比較可。
 # 既定は champion_best（＝提出に使う最良）を優先。champion_deck は ratchet 後は棄却候補のことが
@@ -219,7 +229,7 @@ eval-deck: ## デッキ強さの確定評価（vs 相手プール・floored NN �
 GATE_GAMES ?= 20
 GATE_ARGS  ?=
 champion-gate: ## league 後の keep-best 判定（floored NN 判定・新が best を超えた時だけ昇格・Docker）
-	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(JUDGE_FLAGS) $(GATE_ARGS)
+	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 
 # デッキ探索→ゲートを1サイクル（best起点・確実改善だけ採用）。回すほど champion_best が単調改善。
 # 探索(league)は速い5メタ・判定(gate)は多様 gauntlet。RATCHET_ITERS で時間調整
@@ -233,7 +243,7 @@ ratchet: ## デッキ探索→ゲート1サイクル（best起点／時短: RATC
 	$(PY) src/league.py --cap 12 --iters $(RATCHET_ITERS) --games 4 --pop 6 --gens 3 \
 		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) \
 		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(JUDGE_FLAGS) $(GATE_ARGS)
+	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 	@echo "ratchet 完了。最良は models/champion_best.csv（提出はこれを使う）"
 
 ratchet-overnight: ## 一晩版 ratchet（探索を多め iters20・約6h・翌朝 eval-deck で確認）
@@ -249,7 +259,7 @@ ratchet-nn: ## NN操縦の ratchet（探索=NN-MCTS／判定=floored NN・Docker
 	$(RUN) python src/league.py --cap 12 --iters $(RATCHET_ITERS) --games 4 --pop 6 --gens 3 \
 		--plateau 99 --seed $(LEAGUE_SEED) --pilot nn --net $(NN_NET) --nn-sims $(NN_SIMS) \
 		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(JUDGE_FLAGS) $(GATE_ARGS)
+	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 	@echo "ratchet-nn 完了。最良は models/champion_best.csv（提出はこれを使う）"
 
 # === 提出 ==================================================================
