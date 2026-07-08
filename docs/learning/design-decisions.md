@@ -352,8 +352,15 @@
   提出忠実 sims64/floor8・相手16 のまま**。＝「普段は速く・決め打ちは厳格」の層構成。
 - **層構成でのカバー**: 探索5（狭・速）／ gate 8（相対フィルタ）／ eval-deck 16（絶対確定）。探索が
   ランダム5に過適合しても、より広い gate/eval-deck が昇格前に検出する。すべて実メタで一貫。
-- **効果**: 1イテレ 約1.4h（軽量gate後）→ **約40-45分**（探索sims半減＋gate相手半減）＋**実メタに強くなる**。
-  全て Makefile 変数で上書き可（SEARCH_SAMPLE/SEARCH_SIMS/GATE_OPPS/GATE_SIMS/GATE_FLOOR）。
+- **実測での訂正（2026-07-09）**: `time make ratchet-nn RATCHET_ITERS=15` = **1063分**（17.7h・gate 途中で停止）。
+  分解すると **league ≈ 約64分/iter**（当初 ~21分見積もりは**3倍楽観**＝低スペックの1試合 ~8-11秒を過小評価）、
+  旧 gate ≈ 約2h。**探索が律速**。→ overnight iters を 15→**7**（≈8h）に、無印(3)は≈3.5h と現実化。
+- **gate の2プロファイル分離（実測を受けて）**: ① `make champion-gate`＝単独・厳格（相手12・16試合・約1〜1.5h）
+  ② ratchet 内蔵 gate＝毎サイクル・軽量（相手6・12試合・約30〜45分）。**floor は 4→0**（相対判定で相殺・
+  重さの本体＝終端ロールアウトを除去＝最大の効き）。両者とも確認評価は残す。eval-deck は提出忠実(64/8・16)のまま。
+- **成果の実証（ratchet 初成功）**: 実メタランダム探索の出力が gate 初 eval で **new 最悪0.250/平均0.481 >>
+  best 最悪0.100/平均0.390**＝実メタ相手に明確に上回る候補を生成（§27 の狙い＝探索を実メタにが機能）。
+- 全て Makefile 変数で上書き可（SEARCH_SAMPLE/SEARCH_SIMS/GATE_OPPS/GATE_GAMES/RN_GATE_OPPS/RN_GATE_GAMES/GATE_FLOOR）。
 
 ## 28. Docker は「使い捨て（run --rm）」のまま — 持続コンテナにしない
 - **問い**: `make` の各 Docker ターゲットは `docker compose run --rm dev <cmd>`＝毎回コンテナを生成・破棄する。

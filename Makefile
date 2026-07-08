@@ -167,15 +167,20 @@ JUDGE_BONUS ?= 0.2   # 盤面補正 α（提出と判定で同値・§24）
 JUDGE_FLAGS ?= --pilot nn --net $(NN_NET) --nn-sims $(NN_SIMS) \
 	--floor-rollouts $(JUDGE_FLOOR) --board-bonus $(JUDGE_BONUS)
 
-# gate は毎サイクルの相対フィルタなので軽量（sims32・floor4・相手は実メタ上位 GATE_OPPS）。
-# eval-deck は提出忠実(64/8)・相手16のまま。厳格 gate は GATE_SIMS=64 GATE_FLOOR=8 GATE_OPPS=16。
+# gate = new/best を実メタで比べる相対フィルタ。floor は両者に等しく効き相殺＝**floor0 が最大の
+# 効き**（重さの本体＝終端ロールアウトを除去）。sims も 32≈64。eval-deck は提出忠実(64/8)のまま。
 GATE_SIMS  ?= 32
-GATE_FLOOR ?= 4
+GATE_FLOOR ?= 0
 GATE_JUDGE_FLAGS ?= --pilot nn --net $(NN_NET) --nn-sims $(GATE_SIMS) \
 	--floor-rollouts $(GATE_FLOOR) --board-bonus $(JUDGE_BONUS)
-# gate の相手＝実メタ頻度上位 GATE_OPPS（無ければ champion_gate 既定にフォールバック）。
-GATE_OPPS ?= 8
-_GATE_META = $(if $(strip $(wildcard models/gauntlet/*.csv)),--meta $(wordlist 1,$(GATE_OPPS),$(sort $(wildcard models/gauntlet/*.csv))),)
+# $(call _gate_meta,N)＝実メタ頻度上位 N を --meta に（gauntlet 無ければ空＝champion_gate 既定）。
+_gate_meta = $(if $(strip $(wildcard models/gauntlet/*.csv)),--meta $(wordlist 1,$(1),$(sort $(wildcard models/gauntlet/*.csv))),)
+# 2プロファイル: ① make champion-gate（単独・厳格・約1〜1.5h）＝相手 GATE_OPPS・GATE_GAMES。
+#              ② ratchet 内蔵 gate（毎サイクル・軽量・約30〜45分）＝相手 RN_GATE_OPPS・RN_GATE_GAMES。
+GATE_OPPS     ?= 12
+GATE_GAMES    ?= 16
+RN_GATE_OPPS  ?= 6
+RN_GATE_GAMES ?= 12
 
 # デッキ強さの確定評価（vs 相手プール・floored NN 判定）。既定 champion_best（提出に使う最良）。
 # 別デッキは EVAL_DECK=... 、厳密化は EVAL_DECK_GAMES=40。
@@ -186,14 +191,14 @@ eval-deck: ## デッキ強さの確定評価（vs 相手プール・floored NN �
 	$(RUN) python scripts/eval_deck.py --deck $(EVAL_DECK) --games $(EVAL_DECK_GAMES) \
 		$(JUDGE_FLAGS) $(EVAL_DECK_ARGS)
 
-# 信頼ラチェット gate: 新が best を上回った時だけ昇格（ノイズドリフト阻止）。厳密化は GATE_GAMES=40。
-GATE_GAMES ?= 20
+# 信頼ラチェット gate（単独・厳格プロファイル）: 新が best を上回った時だけ昇格。約1〜1.5h。
 GATE_ARGS  ?=
-champion-gate: ## league 後の keep-best 判定（新が best を超えた時だけ昇格・Docker）
-	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(_GATE_META) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
+champion-gate: ## keep-best 判定・単独厳格（相手12・16試合・約1〜1.5h・Docker）
+	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(call _gate_meta,$(GATE_OPPS)) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 
-# デッキ探索→gate を1サイクル（best起点・確実改善だけ採用）。RATCHET_ITERS で時間調整
-# （ISMCTS探索: 1≒約50分/3≒約1.5h/6≒約3h）。league は毎反復 checkpoint＝途中で止めても再開可。
+# デッキ探索→gate を1サイクル（best起点・確実改善だけ採用）。RATCHET_ITERS で時間調整。
+# 実測(低spec): NN探索 ≈ 約64分/iter＋軽量gate ≈ 30分（例: 3iter ≈ 約3.5h・7iter ≈ 約8h）。
+# league は毎反復 checkpoint＝途中で止めても再開可（champion_deck に途中結果が残る）。
 RATCHET_ITERS ?= 3
 ratchet: ## デッキ探索→ゲート1サイクル（best起点／時短: RATCHET_ITERS=1, じっくり: =6）
 	@if [ -f models/champion_best.csv ]; then \
@@ -203,7 +208,7 @@ ratchet: ## デッキ探索→ゲート1サイクル（best起点／時短: RATC
 	$(PY) src/league.py --cap 12 --iters $(RATCHET_ITERS) --games 4 --pop 6 --gens 3 \
 		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) $(_SEEDS_FLAG) \
 		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(_GATE_META) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
+	$(RUN) python scripts/champion_gate.py --games $(RN_GATE_GAMES) $(call _gate_meta,$(RN_GATE_OPPS)) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 	@echo "ratchet 完了。最良は models/champion_best.csv（提出はこれを使う）"
 
 ratchet-overnight: ## 一晩版 ratchet（探索を多め iters20・約6h・翌朝 eval-deck で確認）
@@ -218,11 +223,11 @@ ratchet-nn: ## NN操縦の ratchet（探索=NN-MCTS／判定=floored NN・Docker
 	$(RUN) python src/league.py --cap 12 --iters $(RATCHET_ITERS) --games 4 --pop 6 --gens 3 \
 		--plateau 99 --seed $(LEAGUE_SEED) --pilot nn --net $(NN_NET) --nn-sims $(SEARCH_SIMS) \
 		$(_SEEDS_FLAG) --max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(_GATE_META) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
+	$(RUN) python scripts/champion_gate.py --games $(RN_GATE_GAMES) $(call _gate_meta,$(RN_GATE_OPPS)) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 	@echo "ratchet-nn 完了。最良は models/champion_best.csv（提出はこれを使う）"
 
-ratchet-nn-overnight: ## NN操縦の一晩版 ratchet（iters15・約5-6h目安・翌朝 eval-deck で確認）
-	$(MAKE) ratchet-nn RATCHET_ITERS=15
+ratchet-nn-overnight: ## NN操縦の一晩版 ratchet（iters7・約8h目安・翌朝 eval-deck で確認）
+	$(MAKE) ratchet-nn RATCHET_ITERS=7
 
 # === 提出 ==================================================================
 # 同梱デッキは champion_best を優先（無ければ champion_deck）。相手推定プールも同梱（§26）。
