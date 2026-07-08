@@ -197,10 +197,10 @@ champion-gate: ## keep-best 判定・単独厳格（相手12・16試合・約1�
 	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(call _gate_meta,$(GATE_OPPS)) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 
 # デッキ探索→gate を1サイクル（best起点・確実改善だけ採用）。RATCHET_ITERS で時間調整。
-# 実測(低spec): NN探索 ≈ 約64分/iter＋軽量gate ≈ 30分（例: 3iter ≈ 約3.5h・7iter ≈ 約8h）。
+# 実測(低spec): NN探索 ≈ 約64分/iter＋軽量gate ≈ 30分（無印1iter ≈ 約1.6h・overnight7iter ≈ 約8h）。
 # league は毎反復 checkpoint＝途中で止めても再開可（champion_deck に途中結果が残る）。
-RATCHET_ITERS ?= 3
-ratchet: ## デッキ探索→ゲート1サイクル（best起点／時短: RATCHET_ITERS=1, じっくり: =6）
+RATCHET_ITERS ?= 1
+ratchet: ## デッキ探索→ゲート1サイクル（best起点／じっくり: RATCHET_ITERS=3 など）
 	@if [ -f models/champion_best.csv ]; then \
 		cp models/champion_best.csv models/champion_deck.csv; \
 		echo "起点を champion_best に設定（best から探索）"; \
@@ -211,8 +211,9 @@ ratchet: ## デッキ探索→ゲート1サイクル（best起点／時短: RATC
 	$(RUN) python scripts/champion_gate.py --games $(RN_GATE_GAMES) $(call _gate_meta,$(RN_GATE_OPPS)) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 	@echo "ratchet 完了。最良は models/champion_best.csv（提出はこれを使う）"
 
-ratchet-overnight: ## 一晩版 ratchet（探索を多め iters20・約6h・翌朝 eval-deck で確認）
-	$(MAKE) ratchet RATCHET_ITERS=20
+# ISMCTS 探索の一晩版。per-iter は未実測（NN と別・time_budget 0.03）。使うなら time で測って調整。
+ratchet-overnight: ## 一晩版 ratchet（ISMCTS探索・iters10・所要は未実測・翌朝 eval-deck で確認）
+	$(MAKE) ratchet RATCHET_ITERS=10
 
 # NN 操縦版 ratchet（探索=NN-MCTS＝ISMCTS の ~1/4 時間・判定=floored NN）。Docker。
 ratchet-nn: ## NN操縦の ratchet（探索=NN-MCTS／判定=floored NN・Docker）
