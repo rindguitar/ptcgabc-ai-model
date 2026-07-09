@@ -14,11 +14,15 @@
 ## 次の一手（優先順）
 1. overnight 探索（`ratchet-nn-overnight` iters11）完了後 → `make champion-gate` で昇格判定（加速入り初の公平判定）。
 2. 昇格したら `make submission-nn` で再提出 → 日次 `make replays` で**0枚負けが減るか**追跡。
-3. **NN 凍結解除＝distill 継ぎ足し**: 加速入り TRAIN_DECKS で `make distill-1h` → 判定は `make eval-net`（vs 実メタ・非ミラー）。operative を上回った時だけ採用（keep-best）。
+3. **NN 凍結解除＝distill 継ぎ足し（前提整備済み・849eeff）**: train_alphazero が学習デッキへ構成射影を
+   自動適用（TRAIN_DECKS 12種すべて加速≥2 検証済み・`--no-repair-decks` で無効化可）。実行手順:
+   `rm -f models/pvnet_distill.pt`（加速ゼロ時代の蓄積を捨てる）→ `make distill-1h` →
+   判定 `make eval-net EVAL_NET=models/pvnet_distill_best.pt`（vs 実メタ・非ミラー）。
+   採用基準: vs 実メタ mean が operative+注入 以上（keep-best・NN_NET は distill_best 優先解決で自動切替）。
 
 ## 未解決・保留中の問題
 - 新デッキ＋加速で 0枚負け（サイドレース競り負け）が実戦で減るか未検証。
-- distill 再開の成功基準を事前確定する必要（§21）: vs 実メタ mean で operative+注入 以上・加速札のプレイ率向上。
+- distill 新 net の「素の加速プレイ率」を測る診断が未整備（diagnose_policy に加速率を足すと判定が締まる）。
 
 ## 直近の決定事項
 - 2026-07-10: ratchet/gate 分離・`GATE_FLOOR` 0→8 復元（floor は「改良ヒューリスティックに加速を打たせる経路」でもある）→ 詳細 docs/learning/design-decisions.md §29。
