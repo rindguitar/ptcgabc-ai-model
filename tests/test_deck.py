@@ -131,3 +131,41 @@ def test_evaluate_decks_self(deck, meta):
     res = evaluate_decks(deck, deck, agent, rng, games=10)
     assert res["wins_a"] + res["wins_b"] + res["draws"] == 10
     assert 0.0 <= res["win_rate_a"] <= 1.0
+
+
+def test_repair_injects_energy_accel(deck, meta):
+    """機能ロール制約: 加速0のデッキを修復すると加速が min_accel 枚まで入る（§29）.
+
+    カテゴリ枚数は不変・60枚・合法を維持したまま入れ替わること。加速トレーナーが実メタに
+    無い環境では注入不能なので skip（分類健全性は別途担保）。
+    """
+    from cards import EFFECT_CATEGORIES
+    from deck import MIN_ACCEL, card_category, repair_composition
+    from deckopt import load_staple_freq
+
+    accel_bit = 1 << EFFECT_CATEGORIES.index("energy_accel")
+    freq = load_staple_freq()
+    has_accel_staple = any(
+        (meta.ability_effect.get(c, 0) & accel_bit)
+        and card_category(meta, c) in ("item", "sup")
+        for c in freq
+    )
+    if not has_accel_staple:
+        pytest.skip("実メタ staple に加速トレーナーが無い（注入不能）")
+
+    def accel(d):
+        return sum(1 for c in d if meta.ability_effect.get(c, 0) & accel_bit)
+
+    # 加速札を基本エネ（無制限＝合法を保てる）に置換した「加速0」の合法60枚デッキを作る
+    basic_ene = next(iter(meta.basic_energy_id.values()))
+    no_accel = [
+        basic_ene if (meta.ability_effect.get(c, 0) & accel_bit) else c for c in deck
+    ]
+    assert len(no_accel) == DECK_SIZE and is_legal(no_accel, no_accel)
+
+    rep = repair_composition(no_accel, meta, freq)
+    if rep is no_accel:  # 安全退化（環境依存）した場合は主張しない
+        pytest.skip("repair が安全退化（環境依存）")
+    assert len(rep) == DECK_SIZE
+    assert is_legal(rep, rep)
+    assert accel(rep) >= MIN_ACCEL  # 加速が min_accel 枚まで注入された

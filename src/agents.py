@@ -27,6 +27,10 @@ Agent = Callable[[Observation, random.Random], list[int]]
 _DRAWSEARCH_MASK = (1 << EFFECT_CATEGORIES.index("draw")) | (
     1 << EFFECT_CATEGORIES.index("search")
 )
+# 展開＝エネ加速のビット。draw/search（たね確保）と合わせて「使うと得な発展手」を表す。
+# 加速札をデッキに入れても操縦が打たなければ腐る（design §29）ので draw/search と同格で使う。
+_ACCEL_MASK = 1 << EFFECT_CATEGORIES.index("energy_accel")
+_DEVELOP_MASK = _DRAWSEARCH_MASK | _ACCEL_MASK
 
 
 def random_agent(obs: Observation, rng: random.Random) -> list[int]:
@@ -66,31 +70,44 @@ def _choose_main(
 ) -> int:
     """MAIN 選択での貪欲な行動選択."""
     opts = obs.select.option
+    st = obs.current
     by_type: dict[int, list[int]] = {}
     for i, o in enumerate(opts):
         by_type.setdefault(o.type, []).append(i)
 
-    # 0. draw/search トレーナーを使う（手札と山札を掘る＝たね/エネ/進化が集まり全行動が良くなる）
+    # 打つ順番（PTCG のセオリー）: ①掘る＆エネ加速 → ②進化 → ③どうぐ → ④エネ付与 →
+    # ⑤ベンチ展開 → ⑥スタジアム → ⑦攻撃。エンジンは MAIN を毎回呼ぶので、優先順が
+    # そのまま「1ターン内の手順」になる。加速/どうぐ/スタジアムを使わず腐らせる問題への対処。
     if use_trainers:
-        drawsearch = [
+        # 0. たね確保＋展開: draw/search/加速 のトレーナー・特性（掘る＆エネを伸ばす）
+        dev = [
             i
             for i in by_type.get(OptionType.PLAY, [])
-            if _is_drawsearch_trainer_play(opts[i], obs, meta)
+            if _is_develop_play(opts[i], obs, meta)
         ]
-        if drawsearch:
-            return rng.choice(drawsearch)
+        dev += [
+            i
+            for i in by_type.get(OptionType.ABILITY, [])
+            if _is_develop_ability(opts[i], meta)
+        ]
+        if dev:
+            return rng.choice(dev)
 
     # 1. 進化（基本的に得）
     if OptionType.EVOLVE in by_type:
         return rng.choice(by_type[OptionType.EVOLVE])
 
-    # 2. エネルギー付与（アクティブを優先して殴れる状態に近づける）
+    # 2. どうぐ装着（HP/火力補助＝腐らせない。対象はエンジンが選ばせる）
+    if use_trainers and OptionType.TOOL_CARD in by_type:
+        return rng.choice(by_type[OptionType.TOOL_CARD])
+
+    # 3. エネルギー付与（アクティブを優先して殴れる状態に近づける）
     if OptionType.ATTACH in by_type:
         attach = by_type[OptionType.ATTACH]
         to_active = [i for i in attach if opts[i].inPlayArea == AreaType.ACTIVE]
         return rng.choice(to_active or attach)
 
-    # 3. 手札のたねポケモンをベンチ展開
+    # 4. 手札のたねポケモンをベンチ展開
     play_basic = [
         i
         for i in by_type.get(OptionType.PLAY, [])
@@ -99,11 +116,21 @@ def _choose_main(
     if play_basic:
         return rng.choice(play_basic)
 
-    # 4. 攻撃（最大ダメージ）
+    # 5. スタジアム（**場に無い時だけ**＝自分の有益スタジアムを毎ターン上書きしない）
+    if use_trainers and st is not None and not st.stadium:
+        stad = [
+            i
+            for i in by_type.get(OptionType.PLAY, [])
+            if _is_stadium_play(opts[i], obs, meta)
+        ]
+        if stad:
+            return rng.choice(stad)
+
+    # 6. 攻撃（最大ダメージ）
     if OptionType.ATTACK in by_type:
         return _argmax_damage_indices(by_type[OptionType.ATTACK], opts, meta)
 
-    # 5. ターン終了
+    # 7. ターン終了
     if OptionType.END in by_type:
         return by_type[OptionType.END][0]
 
@@ -122,21 +149,49 @@ def _is_basic_pokemon_play(opt, obs: Observation, meta: CardMeta) -> bool:
     return meta.is_basic_pokemon(me.hand[opt.index].id)
 
 
-def _is_drawsearch_trainer_play(opt, obs: Observation, meta: CardMeta) -> bool:
-    """PLAY オプションが手札の draw/search 効果トレーナー（グッズ/サポート）を使うものか.
-
-    効果カテゴリ（cards._effect_bitmask がトレーナーの効果文を数値化したもの）で判定する。
-    """
+def _hand_card_id(opt, obs: Observation) -> int | None:
+    """PLAY 系オプションが手札から出すカードの id（範囲外/不明なら None）."""
     st = obs.current
     if st is None or opt.index is None:
-        return False
+        return None
     me = st.players[st.yourIndex]
     if me.hand is None or opt.index >= len(me.hand):
-        return False
-    cid = me.hand[opt.index].id
-    if meta.card_type.get(cid) not in (CardType.ITEM, CardType.SUPPORTER):
+        return None
+    return me.hand[opt.index].id
+
+
+def _is_drawsearch_trainer_play(opt, obs: Observation, meta: CardMeta) -> bool:
+    """PLAY オプションが手札の draw/search 効果トレーナー（グッズ/サポート）を使うものか."""
+    cid = _hand_card_id(opt, obs)
+    if cid is None or meta.card_type.get(cid) not in (
+        CardType.ITEM,
+        CardType.SUPPORTER,
+    ):
         return False
     return bool(meta.ability_effect.get(cid, 0) & _DRAWSEARCH_MASK)
+
+
+def _is_develop_play(opt, obs: Observation, meta: CardMeta) -> bool:
+    """PLAY が draw/search/加速（発展手）のグッズ・サポートを使うものか."""
+    cid = _hand_card_id(opt, obs)
+    if cid is None or meta.card_type.get(cid) not in (
+        CardType.ITEM,
+        CardType.SUPPORTER,
+    ):
+        return False
+    return bool(meta.ability_effect.get(cid, 0) & _DEVELOP_MASK)
+
+
+def _is_develop_ability(opt, meta: CardMeta) -> bool:
+    """ABILITY 起動が draw/search/加速 の特性か（source は opt.cardId）."""
+    cid = opt.cardId
+    return cid is not None and bool(meta.ability_effect.get(cid, 0) & _DEVELOP_MASK)
+
+
+def _is_stadium_play(opt, obs: Observation, meta: CardMeta) -> bool:
+    """PLAY が手札のスタジアムを出すものか."""
+    cid = _hand_card_id(opt, obs)
+    return cid is not None and meta.card_type.get(cid) == CardType.STADIUM
 
 
 def _argmax_damage(opts, meta: CardMeta) -> int:

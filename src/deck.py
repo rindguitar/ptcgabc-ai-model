@@ -10,7 +10,7 @@ from __future__ import annotations
 import random
 from collections import Counter
 
-from cards import CardMeta
+from cards import EFFECT_CATEGORIES, CardMeta
 from cg.api import CardType
 from cg.game import battle_finish, battle_start
 
@@ -193,6 +193,11 @@ COMP_BOUNDS: dict[str, tuple[int, int]] = {
     "tool": (0, 3),
     "ene": (12, 20),
 }
+# 機能ロールの下限（カテゴリ枚数と別の制約）。凍結nnはテンポ/展開を評価できない（board-blind・
+# §24）ため、探索が「ドロー過剰・エネ加速ゼロ」の遅いデッキへ収束する（実測 §29）。加速枠を最低
+# 数だけ**構成に注入**して強制する（value への盤面補正注入と同じ思想＝学べない知識は注入する）。
+MIN_ACCEL = 2
+_ACCEL_BIT = 1 << EFFECT_CATEGORIES.index("energy_accel")
 
 
 def card_category(meta: CardMeta, cid: int) -> str:
@@ -218,12 +223,15 @@ def repair_composition(
     meta: CardMeta,
     staple_freq: Counter,
     bounds: dict[str, tuple[int, int]] | None = None,
+    min_accel: int = MIN_ACCEL,
 ) -> list[int]:
-    """デッキをカテゴリ枚数の許容帯へ射影する（帯内なら無変更）.
+    """デッキをカテゴリ枚数の許容帯＋機能ロール下限へ射影する（帯内なら無変更）.
 
     - 超過カテゴリ: 同一 cardId の多いものから削る（種類は温存）。
     - 不足カテゴリ: ポケモンは自前たねの増量優先（タイプ整合維持）→実メタ頻度上位のたね、
       トレーナー/エネは staple_freq（実メタ採用頻度）上位から。4枚制限・aceSpec 1枚を遵守。
+    - **機能ロール**: エネ加速（展開）を最低 min_accel 枚。不足なら実メタ頻出の加速トレーナーを
+      同カテゴリの冗長札と入れ替える（カテゴリ枚数は不変＝帯を崩さない・§29）。
     - 射影後にエンジン受理（is_legal）を確認し、失敗時は**元のデッキを返す**（安全退化）。
     """
     bounds = bounds or COMP_BOUNDS
@@ -294,6 +302,43 @@ def repair_composition(
     )
     for cat in ("item", "sup", "tool", "stad", "ene"):
         fill(cat, bounds[cat][0], staple_by_cat[cat])
+
+    # 2.5 機能ロール: エネ加速（展開）を最低 min_accel 枚。実メタ頻出の加速トレーナーを、
+    #     同カテゴリの非加速・最も冗長なカードと1枚ずつ入れ替える（カテゴリ枚数は不変）。
+    def accel_count() -> int:
+        return sum(
+            n for c, n in counts.items() if meta.ability_effect.get(c, 0) & _ACCEL_BIT
+        )
+
+    accel_pool = [
+        c
+        for c, _ in staple_freq.most_common()
+        if (meta.ability_effect.get(c, 0) & _ACCEL_BIT)
+        and card_category(meta, c) in ("item", "sup")
+    ]
+    ai = 0
+    while accel_count() < min_accel and ai < len(accel_pool):
+        a = accel_pool[ai]
+        cat_a = card_category(meta, a)
+        if not addable(a):
+            ai += 1
+            continue
+        # 同カテゴリの非加速・最多枚数（冗長）カードを退避
+        same = [
+            (n, c)
+            for c, n in counts.items()
+            if card_category(meta, c) == cat_a
+            and not (meta.ability_effect.get(c, 0) & _ACCEL_BIT)
+        ]
+        if not same:
+            ai += 1
+            continue
+        _, victim = max(same)
+        counts[victim] -= 1
+        if counts[victim] == 0:
+            del counts[victim]
+        counts[a] += 1
+        changed = True
 
     # 3. 60 枚に満たなければグッズ/サポ頻度上位で充填
     filler = [
