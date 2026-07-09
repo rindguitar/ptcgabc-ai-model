@@ -5,6 +5,8 @@ Kaggle「The Pokémon Company - PTCG AI Battle Challenge Strategy」（Simulatio
 セットアップ詳細は [README.md](README.md)、設計判断・用語・コード構造は
 [docs/learning/](docs/learning/)、データのスキーマは [docs/data-notes.md](docs/data-notes.md)。
 
+**現在地・次の一手は [docs/STATUS.md](docs/STATUS.md)（セッション開始時に読み、終了時に更新する）。**
+
 ## ⚠️ 規約（ハード遵守・Sec 2.4/2.6/3.6/3.18.f）
 
 - `data/`（Competition Data）と `src/cg/`（エンジン）は**コミット・出力・公開禁止**
