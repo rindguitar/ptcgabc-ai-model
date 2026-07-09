@@ -84,6 +84,11 @@ def main() -> None:
         "例: --deck models/champion_deck.csv data/sample_deck.csv",
     )
     p.add_argument(
+        "--no-repair-decks",
+        action="store_true",
+        help="学習デッキへの構成射影（加速ロール注入等・§29）を無効化する",
+    )
+    p.add_argument(
         "--out", default="models/pvnet.pt", help="学習ネットの保存先（追跡外）"
     )
     p.add_argument("--iterations", type=int, default=10, help="反復数")
@@ -208,6 +213,19 @@ def main() -> None:
     decks = [
         load_deck(p) for p in args.deck
     ]  # 学習用デッキ群（複数なら毎試合ランダム選択）
+    if not args.no_repair_decks:
+        # 構成射影（加速ロール注入・§29）。旧デッキは energy_accel 0 のことがあり、そのまま
+        # 蒸留すると「加速を打つ手筋」が訓練対局に一度も現れない＝policy が学べない。
+        # 射影は帯内なら無変更・失敗時は元デッキへ安全退化（repair_composition 参照）。
+        from deck import repair_composition
+        from deckopt import load_staple_freq
+
+        freq = load_staple_freq()
+        repaired = [repair_composition(d, meta, freq) for d in decks]
+        n_changed = sum(1 for a, b in zip(decks, repaired) if a != b)
+        decks = repaired
+        if n_changed:
+            print(f"学習デッキ {n_changed} 種に構成射影を適用（加速ロール注入・§29）")
     rng = random.Random(args.seed)
     if len(decks) > 1:
         print(
