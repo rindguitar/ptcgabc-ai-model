@@ -32,7 +32,7 @@ LEAGUE_TIMEBUDGET ?= 0.03
 _PILOT_FLAGS       = --pilot $(LEAGUE_PILOT) --time-budget $(LEAGUE_TIMEBUDGET)
 LEAGUE_SEED    ?= $(shell python3 -c 'import random;print(random.randrange(2**31))')
 LEAGUE_ARGS    ?=
-LEAGUE_EXTRA   ?= $(wildcard models/champion_deck.csv)  # 既存champを探索の種に自動取込
+LEAGUE_EXTRA   ?= $(wildcard models/champion_best.csv)  # best を探索の種に固定取込（継続性）
 _EXTRA_FLAG     = $(if $(LEAGUE_EXTRA),--extra-seeds $(LEAGUE_EXTRA),)
 # 探索の相手＝実メタからランダム抽出（毎実行で別の SEARCH_SAMPLE 個＝特定デッキへの過適合を回避）。
 # gauntlet（実メタ・make gauntlet-real）が無ければ league 既定（公式サンプル）にフォールバック。
@@ -167,20 +167,17 @@ JUDGE_BONUS ?= 0.2   # 盤面補正 α（提出と判定で同値・§24）
 JUDGE_FLAGS ?= --pilot nn --net $(NN_NET) --nn-sims $(NN_SIMS) \
 	--floor-rollouts $(JUDGE_FLOOR) --board-bonus $(JUDGE_BONUS)
 
-# gate = new/best を実メタで比べる相対フィルタ。floor は両者に等しく効き相殺＝**floor0 が最大の
-# 効き**（重さの本体＝終端ロールアウトを除去）。sims も 32≈64。eval-deck は提出忠実(64/8)のまま。
+# gate は探索ループから分離し **make champion-gate で随時**実行する（ratchet は探索のみ＝iter を稼ぐ）。
+# 随時実行なので提出忠実に振れる: **floor8**（floored NN の床＝改良ヒューリスティックが加速を打つ・§29）。
+# floor0 だと凍結nnが加速を打たず加速デッキの利点が見えない（提出は floor8）。sims は 32≈64。
 GATE_SIMS  ?= 32
-GATE_FLOOR ?= 0
+GATE_FLOOR ?= 8
 GATE_JUDGE_FLAGS ?= --pilot nn --net $(NN_NET) --nn-sims $(GATE_SIMS) \
 	--floor-rollouts $(GATE_FLOOR) --board-bonus $(JUDGE_BONUS)
 # $(call _gate_meta,N)＝実メタ頻度上位 N を --meta に（gauntlet 無ければ空＝champion_gate 既定）。
 _gate_meta = $(if $(strip $(wildcard models/gauntlet/*.csv)),--meta $(wordlist 1,$(1),$(sort $(wildcard models/gauntlet/*.csv))),)
-# 2プロファイル: ① make champion-gate（単独・厳格・約1〜1.5h）＝相手 GATE_OPPS・GATE_GAMES。
-#              ② ratchet 内蔵 gate（毎サイクル・軽量・約30〜45分）＝相手 RN_GATE_OPPS・RN_GATE_GAMES。
-GATE_OPPS     ?= 12
-GATE_GAMES    ?= 16
-RN_GATE_OPPS  ?= 6
-RN_GATE_GAMES ?= 12
+GATE_OPPS  ?= 12
+GATE_GAMES ?= 16
 
 # デッキ強さの確定評価（vs 相手プール・floored NN 判定）。既定 champion_best（提出に使う最良）。
 # 別デッキは EVAL_DECK=... 、厳密化は EVAL_DECK_GAMES=40。
@@ -196,39 +193,30 @@ GATE_ARGS  ?=
 champion-gate: ## keep-best 判定・単独厳格（相手12・16試合・約1〜1.5h・Docker）
 	$(RUN) python scripts/champion_gate.py --games $(GATE_GAMES) $(call _gate_meta,$(GATE_OPPS)) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
 
-# デッキ探索→gate を1サイクル（best起点・確実改善だけ採用）。RATCHET_ITERS で時間調整。
-# 実測(低spec): NN探索 ≈ 約64分/iter＋軽量gate ≈ 30分（無印1iter ≈ 約1.6h・overnight7iter ≈ 約8h）。
-# league は毎反復 checkpoint＝途中で止めても再開可（champion_deck に途中結果が残る）。
-RATCHET_ITERS ?= 1
-ratchet: ## デッキ探索→ゲート1サイクル（best起点／じっくり: RATCHET_ITERS=3 など）
-	@if [ -f models/champion_best.csv ]; then \
-		cp models/champion_best.csv models/champion_deck.csv; \
-		echo "起点を champion_best に設定（best から探索）"; \
-	else echo "best 未作成: 現 champion_deck から開始（gate が初回 best を作成）"; fi
+# デッキ探索のみ（gate は分離＝make champion-gate で随時）。best を種に探索し models/champion_deck.csv
+# に出力。RATCHET_ITERS で時間調整（実測(低spec): NN純探索 ≈ 約30〜60分/iter・要再計測）。
+# league は毎反復 checkpoint＝途中で止めても再開可。昇格は champion-gate が best を上回った時だけ。
+RATCHET_ITERS ?= 2
+ratchet: ## デッキ探索のみ（best を種に→champion_deck。昇格は make champion-gate 別途）
 	$(PY) src/league.py --cap 12 --iters $(RATCHET_ITERS) --games 4 --pop 6 --gens 3 \
 		--plateau 99 --seed $(LEAGUE_SEED) $(_PILOT_FLAGS) $(_SEEDS_FLAG) \
 		--max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-	$(RUN) python scripts/champion_gate.py --games $(RN_GATE_GAMES) $(call _gate_meta,$(RN_GATE_OPPS)) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
-	@echo "ratchet 完了。最良は models/champion_best.csv（提出はこれを使う）"
+	@echo "探索完了 → models/champion_deck.csv。昇格は make champion-gate（best 超えで更新）"
 
 # ISMCTS 探索の一晩版。per-iter は未実測（NN と別・time_budget 0.03）。使うなら time で測って調整。
-ratchet-overnight: ## 一晩版 ratchet（ISMCTS探索・iters10・所要は未実測・翌朝 eval-deck で確認）
+ratchet-overnight: ## 一晩版 ratchet（ISMCTS探索のみ・iters10・所要は未実測）
 	$(MAKE) ratchet RATCHET_ITERS=10
 
-# NN 操縦版 ratchet（探索=NN-MCTS＝ISMCTS の ~1/4 時間・判定=floored NN）。Docker。
-ratchet-nn: ## NN操縦の ratchet（探索=NN-MCTS／判定=floored NN・Docker）
-	@if [ -f models/champion_best.csv ]; then \
-		cp models/champion_best.csv models/champion_deck.csv; \
-		echo "起点を champion_best に設定（best から探索）"; \
-	else echo "best 未作成: 現 champion_deck から開始（gate が初回 best を作成）"; fi
+# NN 操縦版の探索のみ（探索=NN-MCTS＝ISMCTS の ~1/4 時間）。Docker。gate は make champion-gate。
+ratchet-nn: ## NN探索のみ（best を種に→champion_deck。昇格は make champion-gate 別途・Docker）
 	$(RUN) python src/league.py --cap 12 --iters $(RATCHET_ITERS) --games 4 --pop 6 --gens 3 \
 		--plateau 99 --seed $(LEAGUE_SEED) --pilot nn --net $(NN_NET) --nn-sims $(SEARCH_SIMS) \
 		$(_SEEDS_FLAG) --max-swaps 12 --explore 0.3 $(_EXTRA_FLAG) $(LEAGUE_ARGS)
-	$(RUN) python scripts/champion_gate.py --games $(RN_GATE_GAMES) $(call _gate_meta,$(RN_GATE_OPPS)) $(GATE_JUDGE_FLAGS) $(GATE_ARGS)
-	@echo "ratchet-nn 完了。最良は models/champion_best.csv（提出はこれを使う）"
+	@echo "探索完了 → models/champion_deck.csv。昇格は make champion-gate（best 超えで更新）"
 
-ratchet-nn-overnight: ## NN操縦の一晩版 ratchet（iters7・約8h目安・翌朝 eval-deck で確認）
-	$(MAKE) ratchet-nn RATCHET_ITERS=7
+# 一晩探索（gate 分離で iter を増やせる。iters は純探索の実測後に調整）。翌朝 make champion-gate。
+ratchet-nn-overnight: ## NN探索の一晩版（iters11・純探索・翌朝 make champion-gate で昇格判定）
+	$(MAKE) ratchet-nn RATCHET_ITERS=11
 
 # === 提出 ==================================================================
 # 同梱デッキは champion_best を優先（無ければ champion_deck）。相手推定プールも同梱（§26）。
