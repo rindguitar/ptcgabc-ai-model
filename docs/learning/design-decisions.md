@@ -417,6 +417,19 @@
   ②gate が毎回でなく随時なので **floor8（提出忠実・加速を打つ）に戻せる**（重くてよい）。探索は floor 不要
   （repair が全候補に加速を強制注入するので、floor 付き gate/eval-deck が正しく評価する）。
 
+## 30. 凍結解除ラウンド1（加速入り distill 1h）— 不採用だが仮説は生存
+- **経緯**: §29 の前提整備（訓練デッキへ構成射影＝加速≥2・改良 heuristic 経由で教師 ISMCTS が加速を実演）
+  の上で、ゼロから `distill-1h`（50 iter・best は iter19 で捕獲→以後過蒸留退行＝keep-best が正常動作）。
+- **外部 A/B（同条件: 昇格 best デッキ・実メタ16・注入0.2・160試合ずつ）**:
+  operative **mean 0.594 / worst 0.300** vs distill_best 0.537 / 0.100。ペア差 mean −0.057（SE≈0.07＝ノイズ圏）
+  だが worst が明確に劣る（苦手2マッチで崩壊）→ 事前基準「mean ≥ operative」を満たさず**不採用**。
+  `pvnet_distill_v24_candidate.pt` に退避（distill_best の存在＝自動採用の罠を解除・operative 解決に復帰）。
+- **ただし仮説は棄却されていない**: distill_best は**ゼロから1h**で全系譜の産物 operative にノイズ圏まで迫った。
+  伸び代は iter 数（旧系譜は overnight 120 iter 級）。→ `pvnet_distill.pt` から**継ぎ足し続行**し、内部 eval が
+  伸びたら再 A/B。**新しい distill_best が生まれるたび、提出前に必ず外部 A/B**（存在＝自動採用に注意）。
+- **同日の確定事項**: ratchet 昇格成功（加速入り探索デッキが確認評価込みで旧 best 超え・§29 パイプライン
+  が通しで初機能）。gate 分離＋floor8 の公平判定も機能。
+
 ## 現在地と次の判断（2026-07-07）
 - **提出（Kaggle・3枠並走中）**: ①ISMCTS ②floored NN＋盤面補正α0.2（エネ33チャンピオン）
   ③同（実メタ構成の repaired デッキ）。実戦成績: nn 0.464 > ismcts 0.395、nn_repaired は初期 n=18 で
