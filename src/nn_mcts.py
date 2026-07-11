@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import random
+import time
 from typing import Callable
 
 from agents import Agent, make_heuristic_agent
@@ -35,6 +36,34 @@ from determinize import determinize, pick_opponent_deck
 Evaluator = Callable[[Observation], "tuple[float, list[float]]"]
 
 _MCTS_SELECT_TYPES = (SelectType.MAIN, SelectType.ATTACK)
+
+# 適応 sims（時間で考える）: 1試合あたりの自分の MCTS 決定数の見込み。replay 実測の
+# 平均 steps（両者合計 80〜100・サブ選択込み）から pick-one 決定はこの程度。残り決定数の
+# 床 8 は「終盤に一気に使い切って時間切れ」を防ぐ保守項。
+_EXPECTED_DECISIONS = 40.0
+_MIN_DECISIONS_LEFT = 8.0
+
+
+def plan_sims(
+    base: int,
+    cap: int,
+    remaining: float,
+    moves_done: int,
+    unit_cost: float | None,
+    n_dets: int,
+) -> int:
+    """残り時間予算から今手の simulation 数を決める（§31・適応 sims の中核）.
+
+    unit_cost = 「1 simulation × 1 determinization」の実測秒（EMA・floor 込み）。
+    未計測（初手）は base。配分は「残り予算 ÷ 残り決定数の見込み」を1手予算とし、
+    それを単価で割る。base を床（従来品質を下回らない）・cap を天井（1手の暴走防止）。
+    """
+    if unit_cost is None or unit_cost <= 0 or remaining <= 0:
+        return base
+    left = max(_MIN_DECISIONS_LEFT, _EXPECTED_DECISIONS - moves_done)
+    per_move = remaining / left
+    sims = int(per_move / (unit_cost * max(1, n_dets)))
+    return max(base, min(cap, sims))
 
 
 def _is_terminal(obs: Observation) -> bool:
@@ -275,6 +304,8 @@ def make_nn_mcts_agent(
     opp_pool: list[list[int]] | None = None,
     floor_rollouts: int = 0,
     floor_margin: float = 0.0,
+    game_budget: float | None = None,
+    max_simulations: int | None = None,
 ) -> Agent:
     """NN 誘導 MCTS（PUCT）エージェントを生成する.
 
@@ -285,22 +316,52 @@ def make_nn_mcts_agent(
     両者を heuristic rollout で実地比較し（net 非依存）、**heuristic を接地評価で上回るときだけ
     NN 手を採用**する。net の value が誤っていても pilot が heuristic を下回らない保証。
     推論/評価/提出向け（rollout 分のレイテンシ増・自己対戦の収集では使わない）。
+
+    game_budget>0 で**適応 sims**を有効化（§31・提出向け）: 自前時計と単価 EMA から
+    plan_sims で今手の sims を決める（床=n_simulations・天井=max_simulations 既定8倍）。
+    実測で NN 提出は 600 秒中 ~550 秒を残しており、推論時間は未使用の計算資源。
+    eval/gate は game_budget を渡さない＝従来の固定 sims（測定時間が爆発しない）。
     """
     heuristic = make_heuristic_agent(meta)
     evaluator = evaluator or make_prize_evaluator(meta)
     fallback = fallback or heuristic
+    sims_cap = max_simulations or n_simulations * 8
+    # 適応 sims の内部状態: [消費秒, 決定数, 単価 EMA（1sim×1det の秒・floor 込み）]
+    spent, moves, unit_ema = [0.0], [0], [None]
 
     def agent(obs: Observation, rng: random.Random) -> list[int]:
         sel = obs.select
         if sel is None or len(sel.option) <= 1 or sel.type not in _MCTS_SELECT_TYPES:
             return heuristic(obs, rng)
+        if game_budget is not None:
+            sims = plan_sims(
+                n_simulations,
+                sims_cap,
+                game_budget - spent[0],
+                moves[0],
+                unit_ema[0],
+                n_determinizations,
+            )
+            t0 = time.perf_counter()
+            action = _search_and_decide(obs, rng, sims)
+            dt = time.perf_counter() - t0
+            spent[0] += dt
+            moves[0] += 1
+            unit = dt / max(1, sims * n_determinizations)  # floor 分も単価に畳む（保守的）
+            unit_ema[0] = (
+                unit if unit_ema[0] is None else 0.7 * unit_ema[0] + 0.3 * unit
+            )
+            return action
+        return _search_and_decide(obs, rng, n_simulations)
+
+    def _search_and_decide(obs: Observation, rng: random.Random, sims: int):
         visits = aggregate_visits(
             obs,
             my_deck,
             opp_deck,
             evaluator,
             rng,
-            n_simulations,
+            sims,
             n_determinizations,
             c_puct,
             fallback,

@@ -14,13 +14,14 @@
 - 学習デッキへの構成射影を train_alphazero に組込（849eeff・TRAIN_DECKS 12種すべて加速≥2）。
 
 ## 次の一手（優先順）
-1. **ネットデッキ検証（§29b）**: 我々に勝率0.7超の頻出実メタデッキを自デッキ候補として測る。
-   `make eval-deck EVAL_DECK=data/replays/opp_decks/opp_04621784.csv`（a8c57d4b も）。
-   best 超えなら `cp → models/champion_deck.csv` → `make champion-gate` で昇格。
-2. `make gauntlet-real` で判定プールを更新（実メタ 132→191 に増加済み）。
-3. **distill 継ぎ足し**: `make distill-1h`（resume・rm 不要）。新 distill_best は提出前に必ず外部 A/B
-   （存在＝自動採用の罠・§30）。採用基準: mean ≥ operative かつ worst が劣らない。
-4. 並行: `ratchet-nn`（無印1iter≈35分）→ `make champion-gate` 随時。
+1. **champion-gate（実行中）の結果確認**: ネットデッキ a8c57d4b（eval-deck mean **0.777**/worst 0.350・
+   歴代最高）が通れば昇格 → `make submission-nn`＋`make submission` で**両操縦・新デッキ再提出**。
+   ※ 再提出には §31 の適応 sims＋操縦改善も自動で乗る（提出経路のみ有効）。
+2. 提出前に `make smoke-submission` で 600 秒クロックを実測（適応 sims の初回検証・重要）。
+3. 日次 `make replays`: 0枚負け率と勝率の推移（ネットデッキ＋§31 の実戦効果）。
+4. **distill 継ぎ足し**: `make distill-1h`（resume・rm 不要）。昇格後は TRAIN_DECKS の先頭が
+   ネットデッキ＝ミラーを極める訓練になる。新 distill_best は提出前に必ず外部 A/B（§30 の罠）。
+5. 並行: `ratchet-nn`（ネットデッキを種に周辺変異を探索）→ `make champion-gate` 随時。
 
 ## 未解決・保留中の問題
 - **加速注入は実戦で効果なし（§29b・1日目）**: 0枚負け率59%/58%で不変・条件付き勝率も無効果。

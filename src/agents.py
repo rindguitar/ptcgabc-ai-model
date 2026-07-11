@@ -126,11 +126,28 @@ def _choose_main(
         if stad:
             return rng.choice(stad)
 
-    # 6. 攻撃（最大ダメージ）
+    # 6. にげる（攻撃できない active の救済・§31）: 現 active では攻撃不能で、ベンチに
+    #    より多くエネが乗った子がいる時だけ交代する（にげるコストでエネを浪費しない保守条件。
+    #    従来は RETREAT を一切使わず「詰み active」のまま殴られ続けていた）。
+    if (
+        OptionType.RETREAT in by_type
+        and OptionType.ATTACK not in by_type
+        and st is not None
+    ):
+        me = st.players[st.yourIndex]
+        active = me.active[0] if me.active else None
+        act_e = len(active.energyCards or []) if active else 0
+        bench_e = max(
+            (len(p.energyCards or []) for p in (me.bench or []) if p), default=0
+        )
+        if bench_e > act_e:
+            return by_type[OptionType.RETREAT][0]
+
+    # 7. 攻撃（最大ダメージ）
     if OptionType.ATTACK in by_type:
         return _argmax_damage_indices(by_type[OptionType.ATTACK], opts, meta)
 
-    # 7. ターン終了
+    # 8. ターン終了
     if OptionType.END in by_type:
         return by_type[OptionType.END][0]
 
@@ -212,10 +229,38 @@ def _generic_select(obs: Observation, meta: CardMeta) -> list[int]:
     - **山札からの選択（サーチ）は「たね優先→エネ優先」で maxCount まで取る**。
       旧実装は最小数（多くは 0 枚）でサーチを無駄撃ちしており、トレーナー活用の妨げだった。
       たね優先はベンチ切れ（実戦敗因の6〜7割）への直接の対策。
+    - **昇格/交代先（TO_ACTIVE/SWITCH）はエネが乗り HP の残る子を優先**（§31。旧実装は
+      先頭固定＝KO 後に空のたねを前に出してサイドレースを落としていた）。
     - それ以外は必要最小数を先頭から選ぶ（任意選択は見送る）。
     """
     sel = obs.select
     n = len(sel.option)
+
+    if sel.context in (SelectContext.TO_ACTIVE, SelectContext.SWITCH):
+        st = obs.current
+        me = st.players[st.yourIndex] if st is not None else None
+
+        def promo_score(i: int) -> tuple[int, int, int]:
+            # エンジン実測: TO_ACTIVE の option は inPlayArea/inPlayIndex が None で、
+            # `index` がベンチ位置を指す。inPlayIndex 形式にも防御的に対応する。
+            o = sel.option[i]
+            pk = None
+            bench = (me.bench or []) if me is not None else []
+            if (
+                o.inPlayArea == AreaType.BENCH
+                and o.inPlayIndex is not None
+                and o.inPlayIndex < len(bench)
+            ):
+                pk = bench[o.inPlayIndex]
+            elif o.index is not None and o.index < len(bench):
+                pk = bench[o.index]
+            if pk is None:  # 解決できない選択肢は従来順（末尾寄せ）
+                return (-1, -1, -i)
+            return (len(pk.energyCards or []), pk.hp or 0, -i)
+
+        take = min(n, max(sel.minCount, 1))
+        ranked = sorted(range(n), key=promo_score, reverse=True)
+        return sorted(ranked[:take])
 
     if sel.type == SelectType.COUNT:
         return [max(range(n), key=lambda i: sel.option[i].number or 0)]

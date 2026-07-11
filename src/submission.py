@@ -136,6 +136,9 @@ def make_kaggle_agent(
             n_simulations=policy_kwargs.pop("n_simulations", 64),
             n_determinizations=policy_kwargs.pop("n_determinizations", 2),
             floor_rollouts=policy_kwargs.pop("floor_rollouts", 8),
+            # 適応 sims（§31）: 残り予算から今手の sims を配分（床=64・天井=8倍）。
+            # 実測で NN 提出は 600 秒中 ~550 秒を残していた＝未使用の推論計算資源を使う。
+            game_budget=game_budget,
             opp_pool=opp_pool,
             **policy_kwargs,
         )

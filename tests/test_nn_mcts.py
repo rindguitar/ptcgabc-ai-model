@@ -75,3 +75,45 @@ def test_nn_mcts_returns_legal_action(meta):
         assert len(set(action)) == len(action)
     finally:
         battle_finish()
+
+
+def test_plan_sims_budget_scaling():
+    """適応 sims（§31）: 未計測は床・予算が厚いほど増え・cap で頭打ち・枯渇で床."""
+    from nn_mcts import plan_sims
+
+    base, cap = 64, 512
+    # 未計測（初手）は床
+    assert plan_sims(base, cap, 500.0, 0, None, 2) == base
+    # 単価 5ms/unit・残り 500s・序盤（残り決定 ~40）→ 1手 ~12.5s ÷ (0.005×2dets) = 1250 → cap
+    assert plan_sims(base, cap, 500.0, 0, 0.005, 2) == cap
+    # 単価が重い（50ms/unit）→ 125 sims（床と cap の間で予算に比例）
+    assert plan_sims(base, cap, 500.0, 0, 0.05, 2) == 125
+    # 予算枯渇 → 床（品質を従来から下げない）
+    assert plan_sims(base, cap, 0.0, 30, 0.005, 2) == base
+    assert plan_sims(base, cap, -5.0, 30, 0.005, 2) == base
+    # 残り決定数の床: 終盤（moves≫40）でも1手に全残額を注がない
+    late = plan_sims(base, cap, 80.0, 60, 0.05, 2)
+    assert late == min(cap, int(80.0 / 8.0 / 0.1))  # 残り決定の床=8 で配分
+
+
+def test_adaptive_agent_returns_legal_and_tracks(meta):
+    """game_budget 付き agent が合法手を返す（ダミー評価器・時計/EMA 経路の煙）."""
+    deck = load_deck(DECK)
+    agent = make_nn_mcts_agent(
+        meta,
+        deck,
+        deck,
+        n_simulations=8,
+        n_determinizations=1,
+        game_budget=540.0,
+    )
+    obs = _advance_to_main(deck, random.Random(0), meta)
+    try:
+        assert obs is not None
+        sel = obs.select
+        for _ in range(2):  # 2手目で EMA 経路（unit_ema 有り）も通す
+            action = agent(obs, random.Random(0))
+            assert sel.minCount <= len(action) <= sel.maxCount
+            assert all(0 <= i < len(sel.option) for i in action)
+    finally:
+        battle_finish()
