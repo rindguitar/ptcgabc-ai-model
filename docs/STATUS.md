@@ -1,6 +1,6 @@
 # STATUS
 
-最終更新: 2026-07-11（セッション終了時に必ず更新）
+最終更新: 2026-07-12（セッション終了時に必ず更新）
 
 ## 現在のフェーズ
 デッキ軸=**加速入り新 best が昇格**（初の通し成功）。NN 軸=凍結解除ラウンド1は不採用だが仮説生存
@@ -14,16 +14,18 @@
 - 学習デッキへの構成射影を train_alphazero に組込（849eeff・TRAIN_DECKS 12種すべて加速≥2）。
 
 ## 次の一手（優先順）
-1. **`make submission-nn` で再提出**（operative＋昇格した加速入り best デッキ）→ Kaggle へ。
-2. 日次 `make replays` で**0枚負けが減るか**追跡（§29 の実戦検証・本丸）。
-3. **distill 継ぎ足し**: `make distill-1h`（resume・rm 不要）を日中に数回 or overnight。
-   新しい distill_best が生まれたら **提出前に必ず外部 A/B**
-   （`make eval-net EVAL_NET=models/pvnet_distill_best.pt` vs `EVAL_NET=models/pvnet_operative.pt`・
-   distill_best は存在＝自動採用なので負けたら退避）。採用基準: mean ≥ operative かつ worst が劣らない。
-4. 並行: `ratchet-nn`（無印1iter≈35分）でデッキ軸の上積み → `make champion-gate` 随時。
+1. **ネットデッキ検証（§29b）**: 我々に勝率0.7超の頻出実メタデッキを自デッキ候補として測る。
+   `make eval-deck EVAL_DECK=data/replays/opp_decks/opp_04621784.csv`（a8c57d4b も）。
+   best 超えなら `cp → models/champion_deck.csv` → `make champion-gate` で昇格。
+2. `make gauntlet-real` で判定プールを更新（実メタ 132→191 に増加済み）。
+3. **distill 継ぎ足し**: `make distill-1h`（resume・rm 不要）。新 distill_best は提出前に必ず外部 A/B
+   （存在＝自動採用の罠・§30）。採用基準: mean ≥ operative かつ worst が劣らない。
+4. 並行: `ratchet-nn`（無印1iter≈35分）→ `make champion-gate` 随時。
 
 ## 未解決・保留中の問題
-- 新デッキ＋加速で 0枚負け（サイドレース競り負け）が実戦で減るか未検証（提出後の replay 待ち）。
+- **加速注入は実戦で効果なし（§29b・1日目）**: 0枚負け率59%/58%で不変・条件付き勝率も無効果。
+  デッキ側仮説は棄却方向＝「自作進化デッキの天井」を疑いネットデッキ検証へ。増量（MIN_ACCEL 2→4）は
+  条件付き勝率が負なので保留。
 - distill 新 net の「素の加速プレイ率」診断が未整備（diagnose_policy に加速率を足すと判定が締まる）。
 - distill_best の worst 崩壊（0.100×2マッチ）の原因未調査（iter 増で消えるか要観測）。
 
