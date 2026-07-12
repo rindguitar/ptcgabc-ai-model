@@ -147,6 +147,10 @@ REPLAYS_ARGS ?=
 replays: ## replay 分析（勝率/敗因/時間の集計＋実メタデッキ抽出・冪等・ホスト）
 	$(PY) scripts/analyze_replays.py $(REPLAYS_ARGS)
 
+# リーダーボード上位の replay を data/replays/others/ に置いて実行（チーム別成績・デッキ・時間）。
+top-replays: ## 上位チーム replay の分析（others/ 配下・チーム別勝率/デッキ/時間・ホスト）
+	$(PY) scripts/analyze_top_replays.py $(TOP_REPLAYS_ARGS)
+
 # 実戦 replay を value 学習に混ぜる経路（§25）。①抽出（ホスト）→ ②value頭 fine-tune（Docker）。
 replay-extract: ## replay JSON から value 学習サンプル (state,z) を抽出・永続化（ホスト）
 	$(PY) scripts/extract_replay_samples.py
