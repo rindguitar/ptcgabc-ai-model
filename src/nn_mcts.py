@@ -44,26 +44,30 @@ _EXPECTED_DECISIONS = 40.0
 _MIN_DECISIONS_LEFT = 8.0
 
 
-def plan_sims(
-    base: int,
-    cap: int,
+def plan_search(
+    base_sims: int,
+    base_dets: int,
     remaining: float,
     moves_done: int,
     unit_cost: float | None,
-    n_dets: int,
-) -> int:
-    """残り時間予算から今手の simulation 数を決める（§31・適応 sims の中核）.
+    sims_cap: int = 512,
+    dets_cap: int = 16,
+) -> tuple[int, int]:
+    """残り時間予算から今手の (sims, dets) を決める（§31・適応探索の中核）.
 
-    unit_cost = 「1 simulation × 1 determinization」の実測秒（EMA・floor 込み）。
-    未計測（初手）は base。配分は「残り予算 ÷ 残り決定数の見込み」を1手予算とし、
-    それを単価で割る。base を床（従来品質を下回らない）・cap を天井（1手の暴走防止）。
+    unit_cost = 「1 simulation × 1 determinization」の実測秒（EMA・floor 込み）。未計測（初手）は
+    (base_sims, base_dets)。1手予算 = 残り予算 ÷ 残り決定数の見込み、units = 予算÷単価を
+    **決定化の幅（dets）優先**で配る: この net は sims 32≈64 で深さ飽和の実測（design-decisions）が
+    あり、不完全情報では決定化平均（PIMC）の分散低減＝§26 ベイズ推定の多サンプル化の方が効くため。
+    base を床（従来品質を下回らない）・cap を天井（1手の暴走・メモリの防止）。
     """
     if unit_cost is None or unit_cost <= 0 or remaining <= 0:
-        return base
+        return base_sims, base_dets
     left = max(_MIN_DECISIONS_LEFT, _EXPECTED_DECISIONS - moves_done)
-    per_move = remaining / left
-    sims = int(per_move / (unit_cost * max(1, n_dets)))
-    return max(base, min(cap, sims))
+    units = (remaining / left) / unit_cost  # この手に使える (sim×det) 数
+    dets = max(base_dets, min(dets_cap, int(units // max(2 * base_sims, 128))))
+    sims = max(base_sims, min(sims_cap, int(units // dets)))
+    return sims, dets
 
 
 def _is_terminal(obs: Observation) -> bool:
@@ -334,27 +338,29 @@ def make_nn_mcts_agent(
         if sel is None or len(sel.option) <= 1 or sel.type not in _MCTS_SELECT_TYPES:
             return heuristic(obs, rng)
         if game_budget is not None:
-            sims = plan_sims(
+            sims, dets = plan_search(
                 n_simulations,
-                sims_cap,
+                n_determinizations,
                 game_budget - spent[0],
                 moves[0],
                 unit_ema[0],
-                n_determinizations,
+                sims_cap=sims_cap,
             )
             t0 = time.perf_counter()
-            action = _search_and_decide(obs, rng, sims)
+            action = _search_and_decide(obs, rng, sims, dets)
             dt = time.perf_counter() - t0
             spent[0] += dt
             moves[0] += 1
-            unit = dt / max(1, sims * n_determinizations)  # floor 分も単価に畳む（保守的）
+            unit = dt / max(1, sims * dets)  # floor 分も単価に畳む（保守的）
             unit_ema[0] = (
                 unit if unit_ema[0] is None else 0.7 * unit_ema[0] + 0.3 * unit
             )
             return action
-        return _search_and_decide(obs, rng, n_simulations)
+        return _search_and_decide(obs, rng, n_simulations, n_determinizations)
 
-    def _search_and_decide(obs: Observation, rng: random.Random, sims: int):
+    def _search_and_decide(
+        obs: Observation, rng: random.Random, sims: int, dets: int
+    ):
         visits = aggregate_visits(
             obs,
             my_deck,
@@ -362,7 +368,7 @@ def make_nn_mcts_agent(
             evaluator,
             rng,
             sims,
-            n_determinizations,
+            dets,
             c_puct,
             fallback,
             opp_pool,

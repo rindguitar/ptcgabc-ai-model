@@ -77,23 +77,27 @@ def test_nn_mcts_returns_legal_action(meta):
         battle_finish()
 
 
-def test_plan_sims_budget_scaling():
-    """適応 sims（§31）: 未計測は床・予算が厚いほど増え・cap で頭打ち・枯渇で床."""
-    from nn_mcts import plan_sims
+def test_plan_search_budget_scaling():
+    """適応探索（§31）: 未計測は床・予算は dets 優先で配分・cap 頭打ち・枯渇で床."""
+    from nn_mcts import plan_search
 
-    base, cap = 64, 512
-    # 未計測（初手）は床
-    assert plan_sims(base, cap, 500.0, 0, None, 2) == base
-    # 単価 5ms/unit・残り 500s・序盤（残り決定 ~40）→ 1手 ~12.5s ÷ (0.005×2dets) = 1250 → cap
-    assert plan_sims(base, cap, 500.0, 0, 0.005, 2) == cap
-    # 単価が重い（50ms/unit）→ 125 sims（床と cap の間で予算に比例）
-    assert plan_sims(base, cap, 500.0, 0, 0.05, 2) == 125
-    # 予算枯渇 → 床（品質を従来から下げない）
-    assert plan_sims(base, cap, 0.0, 30, 0.005, 2) == base
-    assert plan_sims(base, cap, -5.0, 30, 0.005, 2) == base
+    base_s, base_d = 64, 2
+    # 未計測（初手）・予算枯渇 → 床（品質を従来から下げない）
+    assert plan_search(base_s, base_d, 500.0, 0, None) == (base_s, base_d)
+    assert plan_search(base_s, base_d, 0.0, 30, 0.005) == (base_s, base_d)
+    assert plan_search(base_s, base_d, -5.0, 30, 0.005) == (base_s, base_d)
+    # 潤沢（単価 0.5ms・残り 500s・序盤）: units=25000 → 両 cap (512, 16)
+    assert plan_search(base_s, base_d, 500.0, 0, 0.0005) == (512, 16)
+    # 中間（単価 5ms）: units=2500 → dets=16（幅優先）・sims=156
+    assert plan_search(base_s, base_d, 500.0, 0, 0.005) == (156, 16)
+    # 重い環境（単価 50ms）: units=250 → dets=2（床）・sims=125
+    assert plan_search(base_s, base_d, 500.0, 0, 0.05) == (125, 2)
+    # 1手予算の自己整合: sims×dets ≦ units（±丸め）
+    s, d = plan_search(base_s, base_d, 500.0, 0, 0.005)
+    assert s * d <= 2500 * 1.1
     # 残り決定数の床: 終盤（moves≫40）でも1手に全残額を注がない
-    late = plan_sims(base, cap, 80.0, 60, 0.05, 2)
-    assert late == min(cap, int(80.0 / 8.0 / 0.1))  # 残り決定の床=8 で配分
+    s, d = plan_search(base_s, base_d, 80.0, 60, 0.005)
+    assert s * d <= (80.0 / 8.0) / 0.005 * 1.1
 
 
 def test_adaptive_agent_returns_legal_and_tracks(meta):
