@@ -38,7 +38,8 @@ def _deck_of(ep: dict, seat: int) -> list[int] | None:
 
 
 def _deck_hash(deck: list[int]) -> str:
-    return hashlib.md5(str(sorted(deck)).encode()).hexdigest()[:8]
+    """analyze_replays._save_deck と同一書式（opp_decks のファイル名と一致させる）."""
+    return hashlib.md5(",".join(map(str, sorted(deck))).encode()).hexdigest()[:8]
 
 
 def _min_overage(ep: dict, seat: int) -> float | None:

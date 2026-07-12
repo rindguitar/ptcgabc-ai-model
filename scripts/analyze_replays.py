@@ -159,8 +159,15 @@ def main() -> None:
     log_rows = _read_log(args.log)
     done_ids = {r["episode_id"].split("#")[0] for r in log_rows}
 
+    # 自チーム推定は others/（他チーム同士の DL 分）を除いて行う。others が大量だと
+    # 最頻チーム＝他人（例: 1位の216件）になり、その対局を自分の対局として誤ログする（実障害）。
+    own_eps = [
+        ep
+        for pth, ep in episodes
+        if os.path.basename(os.path.dirname(pth)) != "others"
+    ]
     my_team = args.team or (
-        _guess_my_team([ep for _, ep in episodes]) if episodes else None
+        _guess_my_team(own_eps or [ep for _, ep in episodes]) if episodes else None
     )
     if my_team is None and episodes:
         raise SystemExit("自分のチームを推定できません。--team で指定")
