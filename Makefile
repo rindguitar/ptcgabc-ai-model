@@ -142,10 +142,12 @@ DIAGNOSE_ARGS ?=
 diagnose: ## NN policy 診断（手を順位付けできるか等の切り分け・Docker）
 	$(RUN) python scripts/diagnose_policy.py --net $(EVAL_NET) $(DIAGNOSE_ARGS)
 
-# Kaggle replay 分析（日次: DL → make replays → JSON削除）。集計＋相手デッキ抽出。詳細は analyze_replays.py。
+# Kaggle replay 分析（日次: DL → make replays → 抽出後に JSON削除）。集計＋相手デッキ抽出。
+# MY_TEAM を明示＝自分の JSON が無い時に最頻チーム（他人）を自分と誤認する事故を防ぐ。
+MY_TEAM      ?= R.I
 REPLAYS_ARGS ?=
 replays: ## replay 分析（勝率/敗因/時間の集計＋実メタデッキ抽出・冪等・ホスト）
-	$(PY) scripts/analyze_replays.py $(REPLAYS_ARGS)
+	$(PY) scripts/analyze_replays.py --team "$(MY_TEAM)" $(REPLAYS_ARGS)
 
 # リーダーボード上位の replay を data/replays/others/ に置いて実行（チーム別成績・デッキ・時間）。
 top-replays: ## 上位チーム replay の分析（others/ 配下・チーム別勝率/デッキ/時間・ホスト）
