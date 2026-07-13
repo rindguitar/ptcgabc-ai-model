@@ -14,18 +14,20 @@ ISMCTS > floored NN が3日連続（§32）。最終提出の第一候補は現�
 - §31 実装: 適応探索 plan_search（dets優先・1手64倍）・にげる・昇格先選択（d6bdac3）。
 
 ## 次の一手（優先順）
-1. **探索量の効果測定（§21・cap 増しの前に）**: ローカル A/B「適応 ON（cap 512×16）vs OFF（固定64×2）」
-   同 net・実メタプール。効かなければ evaluator の質が天井＝cap 増しは棄却し distill に集中。
-2. **distill 継ぎ足し**: `make distill-1h`（resume）。ネットデッキミラー訓練＝evaluator の質を上げる本命。
+1. **クローン継ぎ足し（§33・不採用だが機構実証済み）**: 1位の新規 replay を数日おきに追い DL →
+   `make teacher-extract TEACHER_TEAM="TeamB"`（冪等追記）→ `make teacher-tune` 再実行。
+   一致率 0.470 がまだ上昇中＝データ量が律速。再判定時は **floor0/4 の A/B を添える**（floor がクローンを
+   抑圧する疑い・§33）。
+2. **distill 継ぎ足し**: `make distill-1h`（resume）。championデッキのミラー訓練。
    新 distill_best は提出前に必ず外部 A/B（§30 の罠）。
 3. 日次 `make replays`: ismcts>nn トレンドの n 蓄積（決定的になったら提出構成を ISMCTS 主軸に）。
 4. 並行: `ratchet-nn`（ネットデッキ周辺の変異探索）→ `make champion-gate` 随時。
-5. `make gauntlet-real`（実メタ 240 に増加済み・判定プール更新）。
+5. `make gauntlet-real`（実メタ 262 に増加済み・上位帯デッキ込みで判定プール更新）。
 
 ## 未解決・保留中の問題
-- nn の追い上げ可否: 探索量（cap）か evaluator の質か——1. の A/B で切り分け。
-- distill 新 net の「素の加速プレイ率」診断が未整備。
-- MIN_ACCEL 増量は保留のまま（§29b・条件付き勝率が負）。
+- クローンの floor 抑圧疑い（floor0=0.681 > floor8=0.588）——再判定時に floor A/B で検証。
+- nn の追い上げ可否: 探索量（cap）か evaluator の質か（§33 で「1位は3秒思考」＝質優勢の傍証）。
+- distill 新 net の「素の加速プレイ率」診断が未整備。MIN_ACCEL 増量は保留（§29b）。
 
 ## 直近の決定事項
 - 2026-07-13: ネットデッキ実戦成功・操縦差が主戦線（§32）。最終提出の第一候補=ISMCTS（暫定）。
