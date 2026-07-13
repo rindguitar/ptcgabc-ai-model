@@ -151,6 +151,17 @@ replays: ## replay 分析（勝率/敗因/時間の集計＋実メタデッキ�
 top-replays: ## 上位チーム replay の分析（others/ 配下・チーム別勝率/デッキ/時間・ホスト）
 	$(PY) scripts/analyze_top_replays.py $(TOP_REPLAYS_ARGS)
 
+# 教師方策クローン（§33）: 任意チームの実戦決定を教師に policy を fine-tune。
+# 例: make teacher-extract TEACHER_TEAM="<チーム名>" → make teacher-tune TEACHER_SAMPLES=<npz>
+TEACHER_TEAM    ?=
+TEACHER_SAMPLES ?=
+teacher-extract: ## 指定チームの (局面→選択) を抽出（TEACHER_TEAM= 必須・ホスト・冪等）
+	@test -n "$(TEACHER_TEAM)" || (echo "TEACHER_TEAM=<チーム名> を指定"; exit 1)
+	$(PY) scripts/extract_teacher_samples.py --team "$(TEACHER_TEAM)" $(TEACHER_EXTRACT_ARGS)
+teacher-tune: ## 教師の決定で policy を行動クローン（TEACHER_SAMPLES= 必須・Docker）
+	@test -n "$(TEACHER_SAMPLES)" || (echo "TEACHER_SAMPLES=<npz> を指定"; exit 1)
+	$(RUN) python scripts/teacher_tune.py --samples $(TEACHER_SAMPLES) $(TEACHER_TUNE_ARGS)
+
 # 実戦 replay を value 学習に混ぜる経路（§25）。①抽出（ホスト）→ ②value頭 fine-tune（Docker）。
 replay-extract: ## replay JSON から value 学習サンプル (state,z) を抽出・永続化（ホスト）
 	$(PY) scripts/extract_replay_samples.py

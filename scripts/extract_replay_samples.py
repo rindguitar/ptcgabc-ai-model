@@ -126,7 +126,9 @@ def main() -> None:
         f"累計: {len(states)} サンプル（次元 {OBS_FEAT_LEN}）・勝ちラベル比率 "
         f"{float(z_arr.mean()):.3f}・処理済み episode {len(done)}"
     )
-    print("※ 抽出後の JSON は削除して構いません（サンプルが永続化されました）")
+    print(
+        "※ JSON の削除は teacher-extract も済ませてから（行動クローンは生 JSON が必要）"
+    )
 
 
 if __name__ == "__main__":

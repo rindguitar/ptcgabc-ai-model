@@ -260,7 +260,10 @@ def main() -> None:
         f"新規 {len(new_rows)} 行を記録（処理済みスキップ {n_skip}・セルフ {n_self}・"
         f"他チーム収穫デッキ {n_harvest}）→ {args.log}"
     )
-    print("※ 集計済みの JSON ファイルは削除して構いません（ログとデッキ CSV が残る）\n")
+    print(
+        "※ JSON の削除は teacher-extract / replay-extract を済ませてから"
+        "（行動クローンは生 JSON が必要・ログとデッキ CSV はここで永続化済み）\n"
+    )
 
     # ==== 累積サマリ（ログ全体から） ====
     games = [r for r in all_rows if r["result"] in ("win", "loss")]
