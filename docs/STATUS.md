@@ -3,26 +3,28 @@
 最終更新: 2026-07-13（セッション終了時に必ず更新）
 
 ## 現在のフェーズ
-**ネットデッキが実戦で当たり**（ismcts 0.544＝初の5割超え）。主戦線は**操縦の差**へ:
-ISMCTS > floored NN が3日連続（§32）。最終提出の第一候補は現状 ISMCTS。
+**実戦 A/B を刷新**（2026-07-13 提出・両者同時スタート）:
+- 枠1: **ismcts＋a8c57d4b**（現行最良・相手推定262デッキに強化・レートはリセット）
+- 枠2: **teacher＋c921b9b2**（1位クローン・floor0・注入0.2）＝「我々の最良 vs 1位の複製」の直接対決。
+  ローカルでは現行優位（0.777 vs 0.588@floor8）だが、eval-deck は**相手も同じ net が操縦する交絡**が
+  あり裁定不能（§33）→ ラダーが最終裁定。旧 nn 枠（operative）は役目を終え退役（3日分の基線は確保済み）。
 
 ## 前回やったこと
-- **ネットデッキ実戦1日目（§32）**: ismcts **0.544**（前日0.421）/ nn 0.449（同0.373）。
-  0枚負け緩和（nn 59%→41%・敗北時獲得サイド 0.7→1.3）＝§29b 仮説が実戦で支持。
-- **操縦差の確定トレンド**: ismcts > nn 3バッチ連続（同一デッキ2日合算 0.482 vs 0.410）。
-  機構＝思考時間: ismcts ~408s/試合 vs nn ~28s（§31 適応探索は本番稼働も cap 律速＝1/14）。
-- §31 実装: 適応探索 plan_search（dets優先・1手64倍）・にげる・昇格先選択（d6bdac3）。
+- **§33 完結（ラウンド1）**: クローン一致率 0.166→0.470・1位デッキの操縦 0.537→0.588@floor8（0.681@floor0）。
+  ローカル基準では不採用だが、eval-deck の「判定 net が両席を操縦する」交絡に気づき実戦 A/B へ委任。
+  floor がクローンを抑圧する疑い（floor0>floor8）も記録。
+- ネットデッキ実戦1日目（§32）: ismcts 0.544（初の5割超え）・0枚負け緩和・操縦差3日連続。
+- §31: 適応探索（dets優先・1手64倍）・にげる・昇格先選択。teacher 提出の smoke では
+  104決定/30.6s と適応探索がフルに稼働（エンジン型デッキ＝決定数が多く §31 の恩恵大）。
 
 ## 次の一手（優先順）
-1. **クローン継ぎ足し（§33・不採用だが機構実証済み）**: 1位の新規 replay を数日おきに追い DL →
-   `make teacher-extract TEACHER_TEAM="TeamB"`（冪等追記）→ `make teacher-tune` 再実行。
-   一致率 0.470 がまだ上昇中＝データ量が律速。再判定時は **floor0/4 の A/B を添える**（floor がクローンを
-   抑圧する疑い・§33）。
-2. **distill 継ぎ足し**: `make distill-1h`（resume）。championデッキのミラー訓練。
-   新 distill_best は提出前に必ず外部 A/B（§30 の罠）。
-3. 日次 `make replays`: ismcts>nn トレンドの n 蓄積（決定的になったら提出構成を ISMCTS 主軸に）。
-4. 並行: `ratchet-nn`（ネットデッキ周辺の変異探索）→ `make champion-gate` 随時。
-5. `make gauntlet-real`（実メタ 262 に増加済み・上位帯デッキ込みで判定プール更新）。
+1. **日次 `make replays`**: 新 A/B（ismcts vs teacher・同時スタート）の追跡。teacher 枠の DL は
+   **data/replays/teacher/** へ。見るもの: 勝率・0枚負け率・overage（teacher は floor0＋適応探索）。
+2. **クローン継ぎ足し**: 1位の新規 replay を数日おきに追い DL → `make teacher-extract`（冪等）→
+   `make teacher-tune` 再実行（一致率 0.470 はデータ量律速でまだ伸びる）。
+3. **distill 継ぎ足し**: `make distill-1h`（resume・champion ミラー訓練）。新 distill_best は必ず外部 A/B。
+4. 並行: `ratchet-nn`（champion 周辺の変異探索）→ `make champion-gate` 随時。
+5. `make gauntlet-real`（実メタ 262・上位帯込みで判定プール更新）。
 
 ## 未解決・保留中の問題
 - クローンの floor 抑圧疑い（floor0=0.681 > floor8=0.588）——再判定時に floor A/B で検証。
