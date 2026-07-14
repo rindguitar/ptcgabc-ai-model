@@ -52,3 +52,18 @@ episode JSON
   分析結果はチーム名・数値・ID までに留める**（カード名・効果文は出さない）。
 - JSON に**保持期限の情報は無い**。Kaggle 側で古い episode が辿りにくくなる可能性に備え、**毎日ダウンロードして
   手元に蓄積**する（分析はエピソード ID で冪等）。
+
+## 生 JSON のライフサイクル（いつ消してよいか・2026-07-15 決定）
+
+**原則: 生 JSON は「蒸留物」を全部絞ったら削除可。永久保存は蒸留物の方**——
+`episodes_log.csv`・`opp_decks/*.csv`・`value_samples.npz`・`teacher_*.npz`（いずれも冪等追記で軽い）。
+
+削除前チェックリスト:
+- **自分の対局**（ismcts/ teacher/ 等）: ① `make replays` ② `make replay-extract`
+  ③ その日の深掘り分析（サイド差・使用デッキ検証等）→ 削除可。
+  **例外: A/B 判定が未決着のアームは決着まで残す**（追加の深掘りは生 JSON にしか無い情報を使う）。
+- **他チーム**（others/）: ① `make replays`（デッキ収穫）② `make top-replays`（成績の記録）
+  ③ 教師候補は `make teacher-extract` ④ **本人の基準値算出**（手数・デッキ切れ率＝
+  design-decisions §35 の教訓: クローンとの比較基準に要る）→ 削除可。
+- **迷ったら削除でなくアーカイブ**: `tar czf data/replays/archive/YYYYMMDD.tar.gz <フォルダ>`
+  （容量 1/5〜1/10・後から再分析可能）。アーカイブも Competition Data＝追跡外・競技終了後に削除。
