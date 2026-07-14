@@ -62,6 +62,9 @@ def play_ismcts_distill_game(
     temp>0 で訪問分布(soft-π)を解放できる（teacher を深くした時に僅差情報を活かす）。実行手は
     最多訪問手（標準的な MCTS の着手）。訪問が薄い局面は記録せず heuristic で進める。
     """
+    # 流れ: 1. 対局を進め、MAIN/ATTACK 決定ごとに ISMCTS 探索の訪問統計を取る
+    # → 2. 訪問が十分なら π（one-hot/soft）を記録し最多訪問手で着手（薄ければ heuristic）
+    # → 3. 終局後、各記録局面へ手番視点の勝敗 z を付けて Sample 化。
     heuristic = make_heuristic_agent(meta)
     obs_dict, _ = battle_start(deck, deck)
     pending: list[tuple[np.ndarray, np.ndarray, np.ndarray, int]] = []

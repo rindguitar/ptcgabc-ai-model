@@ -68,6 +68,9 @@ def train(
     policy_weight=0 で **value のみ学習**（実戦 replay の z を value 頭に回帰する用途。
     replay のダミー行動で policy を汚さない）。
     """
+    # 流れ: 1. epoch ごとにサンプルをシャッフル → 2. 1件ずつ forward し
+    # value(BCE)+policy(交差エントロピー) の加重和を勾配蓄積 → 3. batch_size 件ごとに step
+    # （行動数が可変で通常のバッチ化ができないため、勾配蓄積で擬似バッチにする）。
     if not samples:
         return []
     dev = torch.device(device)
@@ -77,6 +80,7 @@ def train(
     history = []
 
     for epoch in range(epochs):
+        # 1. シャッフル（試合内の相関を崩す）
         order = torch.randperm(len(samples)).tolist()
         sum_v, sum_p, count = 0.0, 0.0, 0
         opt.zero_grad()
@@ -86,6 +90,7 @@ def train(
             actions = torch.from_numpy(s.actions).to(dev)
             pi = torch.from_numpy(s.pi).to(dev)
 
+            # 2. 損失 = value_weight×BCE(value, z) + policy_weight×CE(π, logits) を勾配蓄積
             value, logits = net(state, actions)
             v_loss = F.binary_cross_entropy(value, torch.tensor(float(s.z), device=dev))
             p_loss = -(pi * F.log_softmax(logits, dim=-1)).sum()

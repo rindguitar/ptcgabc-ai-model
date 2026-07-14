@@ -75,6 +75,10 @@ def _eval_vs_heuristic(
 
 
 def main() -> None:
+    # 全体の流れ: 1. 引数/デッキ（構成射影込み）/net（resume・EMA）を準備
+    # → 2. 各 iter で教師データ収集（ismcts 蒸留 or self-play・CPU 並列）→ replay バッファへ
+    # → 3. train() で学習 → 4. eval-every ごとに CRN 評価＋確認評価で best を keep-best 保存
+    # （EMA 有効時は EMA net を評価・カナリアで raw も監視）→ 5. 毎 iter 保存＝resume 可能。
     p = argparse.ArgumentParser(description="AlphaZero 反復学習")
     p.add_argument(
         "--deck",

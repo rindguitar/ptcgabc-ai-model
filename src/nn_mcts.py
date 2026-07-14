@@ -267,8 +267,12 @@ def aggregate_visits(
     エージェントの行動選択に使う。opp_pool 指定時は相手デッキを観測整合で推定する。
     root_noise_eps>0 で根に Dirichlet ノイズ（self-play 収集の多様性確保・推論では 0）。
     """
+    # 流れ: 1. 相手デッキを推定して隠れ情報を決定化 → 2. その仮定の下で PUCT を sims 回
+    # → 3. 根の子の訪問数を集計。これを n_determinizations 回繰り返し訪問数を合算
+    # （複数の仮定で平均＝特定の決定化に依存しない頑健な方策）。
     visits: dict[tuple[int, ...], int] = {}
     for _ in range(n_determinizations):
+        # 1. 決定化（相手デッキはベイズ推定・§26）
         opp = pick_opponent_deck(obs, opp_pool, opp_deck, rng)
         det = determinize(obs, my_deck, opp, rng)
         try:
@@ -287,9 +291,11 @@ def aggregate_visits(
         root = _Node(root_state, obs.current.yourIndex)
         if root_noise_eps > 0:
             _apply_root_noise(root, root_noise_eps, evaluator, rng, fallback)
+        # 2. この決定化の下で PUCT シミュレーション
         sims = max(1, n_simulations // n_determinizations)
         for _ in range(sims):
             _simulate(root, c_puct, evaluator, rng, fallback)
+        # 3. 根の行動別訪問数を決定化横断で合算
         for key, child in root.children.items():
             visits[key] = visits.get(key, 0) + child.n
         search_end()

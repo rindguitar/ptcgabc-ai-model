@@ -78,6 +78,9 @@ def play_selfplay_game(
     平坦な π から終盤に悪手を引き、「勝勢だったのに乱心で負けた」試合の z が全局面を
     汚染する（実測: value が盤面の逆相関を学び劣化）。0 で全手 argmax。
     """
+    # 流れ: 1. 対局を進め、MAIN/ATTACK 決定ごとに PUCT の訪問分布 π を記録
+    # → 2. 序盤は π サンプリング・以降 argmax で着手（温度スケジュール）
+    # → 3. 終局後、各記録局面へ手番視点の勝敗 z を付けて Sample 化。
     heuristic = make_heuristic_agent(meta)
     obs_dict, _ = battle_start(deck, deck)
     pending: list[tuple[np.ndarray, np.ndarray, np.ndarray, int]] = []

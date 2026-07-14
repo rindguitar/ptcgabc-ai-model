@@ -137,6 +137,8 @@ def evolve(
     Returns:
         dict: best デッキと適応度、世代ごとの履歴。
     """
+    # 流れ: 1. シードから変異で初期集団を作る → 2. 各世代で全個体の適応度（プールへの
+    # 最悪ケース勝率）を測る → 3. エリート保存＋変異/多様性注入で次世代 → 最良を返す。
     rng = rng or random.Random(0)
     meta = meta or load_card_meta()
     agent = agent or make_heuristic_agent(meta)

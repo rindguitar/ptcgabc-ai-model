@@ -46,6 +46,8 @@ def play_match(
     Returns:
         dict: result（勝者席 index 0/1, 引き分け 2, 不明 None）, turn, steps。
     """
+    # 流れ: 1. battle_start で対局開始 → 2. 終局/選択肢なしまで「手番側の agent に
+    # 選ばせて battle_select」を繰り返す → 3. 結果 dict を返す（finally で必ず battle_finish）。
     obs_dict, start = battle_start(deck0, deck1)
     if obs_dict is None:
         raise RuntimeError(
