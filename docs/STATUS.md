@@ -18,10 +18,11 @@
   104決定/30.6s と適応探索がフルに稼働（エンジン型デッキ＝決定数が多く §31 の恩恵大）。
 
 ## 次の一手（優先順）
-1. **クローン継ぎ足しラウンド2（§35・停止基準つき）**: 1位の新規 replay を追DL（others/）→
-   基準値算出（1位の手数/デッキ切れ率）→ `make teacher-extract TEACHER_TEAM="TeamB"` →
-   `make teacher-tune` → 再提出。**継ぎ足し後も teacher < ismcts−0.10 なら枠を差し戻す**。
-   1日目実測: ismcts 0.579 vs teacher 0.417＝変換失敗型（長い試合で0枚・デッキ切れ5・§35）。
+1. **教師交代＝TeamA クローン（§36・抽出済み 10,214 サンプル）**:
+   `make teacher-tune TEACHER_SAMPLES=data/replays/teacher_teama1337.npz TEACHER_TUNE_ARGS="--out models/pvnet_teacher_teama.pt"`
+   → 一致率確認 → 提出物（a4066acd＋teama net・floor0・注入0.2）→ smoke → teacher 枠差し替え
+   （1回提出で最古＝旧 teacher が落ちる）。停止基準: 1ラウンド後も ismcts−0.10 未満なら差し戻し。
+   クローン品質の基準値（本人）: 0枚負け17%・デッキ切れ4%・負けてもサイド2〜4枚（§36）。
    効かなければ次の弾＝サブ選択（サーチ対象）の模倣。
 2. **クローン継ぎ足し**: 1位の新規 replay を数日おきに追い DL → `make teacher-extract`（冪等）→
    `make teacher-tune` 再実行（一致率 0.470 はデータ量律速でまだ伸びる）。
