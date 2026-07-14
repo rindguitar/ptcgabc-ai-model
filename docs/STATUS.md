@@ -18,8 +18,9 @@
   104決定/30.6s と適応探索がフルに稼働（エンジン型デッキ＝決定数が多く §31 の恩恵大）。
 
 ## 次の一手（優先順）
-1. **日次 `make replays`**: 新 A/B（ismcts vs teacher・同時スタート）の追跡。teacher 枠の DL は
-   **data/replays/teacher/** へ。見るもの: 勝率・0枚負け率・overage（teacher は floor0＋適応探索）。
+1. **日次 `make replays`＋teacher 分解（§34 の事前登録どおり）**: teacher 枠 DL は **data/replays/teacher/** へ。
+   12h 中間で teacher 劣勢（暫定）。1日データで負け方を3仮説に分類——①OOD大ポカ型→floor4 再提出
+   ②ライン切れ型→クローン継ぎ足し ③相性型→nn-operative 枠へ差し戻し（tar 残存・ゼロコスト）。
 2. **クローン継ぎ足し**: 1位の新規 replay を数日おきに追い DL → `make teacher-extract`（冪等）→
    `make teacher-tune` 再実行（一致率 0.470 はデータ量律速でまだ伸びる）。
 3. **distill 継ぎ足し**: `make distill-1h`（resume・champion ミラー訓練）。新 distill_best は必ず外部 A/B。
