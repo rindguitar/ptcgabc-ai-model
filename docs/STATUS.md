@@ -18,10 +18,11 @@
   104決定/30.6s と適応探索がフルに稼働（エンジン型デッキ＝決定数が多く §31 の恩恵大）。
 
 ## 次の一手（優先順）
-1. **（ユーザー）A案の2連続提出**: ① submission_ismcts_a4066acd.tar.gz → ② submission.tar.gz（旗艦再ビルド・
-   相手推定332）。最終 active = [ismcts×a4066acd, ismcts×a8c57d4b] 同時スタート＝純粋なデッキ分離A/B。
-2. **（主軸・操縦強化）AlphaGo型 pilot の実装**: クローン policy を PUCT の事前分布・葉は接地ロールアウト
-   （§37 の次弾・複合誤差の正しい解）。実装後ローカル比較 → 良ければ次の枠替えで投入。
+1. **（ユーザー）2連続提出**: ① submission_alphago_a4066acd.tar.gz（AlphaGo型・§38）→
+   ② submission.tar.gz（旗艦 ismcts×a8c57d4b・相手推定332）。最終 active =
+   [AlphaGo型×a4066acd, ismcts×a8c57d4b] 同時スタート＝「クローン誘導の接地探索 vs 素の接地探索」。
+2. 1日後 `make replays`（AlphaGo枠は data/replays/alphago/ へ）→ 勝率＋§36基準値（負け試合の獲得サイド・
+   デッキ切れ率）で判定。
 3. 並行: ratchet-nn（デッキ軸・軽め）・日次 make replays（新A/B追跡）。
 4. （将来・要再DL）TeamA のサブ選択（サーチで何を取るか）マイニング → _generic_select のデッキ別事前分布化。
 ## 未解決・保留中の問題

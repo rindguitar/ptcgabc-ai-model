@@ -80,7 +80,8 @@ _AGENT_CALLS = {
     # floored NN-MCTS: pilot≥heuristic の接地保証＋時間ガード（超過時 heuristic 退避）
     # ＋盤面補正（board-blind な value への注入・α=0.2 実測 +0.075）。
     "nn": '"nn", deck_path="deck.csv", opp_pool_dir="opp_decks", game_budget=540.0,\n'
-    '    net_path="pvnet.pt", floor_rollouts={floor_rollouts}, board_bonus={board_bonus}',
+    '    net_path="pvnet.pt", floor_rollouts={floor_rollouts}, board_bonus={board_bonus},\n'
+    '    leaf_rollouts={leaf_rollouts}',
 }
 
 
@@ -91,6 +92,7 @@ def build(
     net_path: str | None = None,
     floor_rollouts: int = 8,
     board_bonus: float = 0.2,
+    leaf_rollouts: int = 0,
 ) -> tuple[str, list[str]]:
     """提出パッケージを組み立てて (tar パス, 同梱物一覧) を返す."""
     build_dir = os.path.join(ROOT, "models", "submission")
@@ -99,7 +101,7 @@ def build(
     os.makedirs(build_dir)
 
     agent_call = _AGENT_CALLS[policy].format(
-        floor_rollouts=floor_rollouts, board_bonus=board_bonus
+        floor_rollouts=floor_rollouts, board_bonus=board_bonus, leaf_rollouts=leaf_rollouts
     )
     with open(os.path.join(build_dir, "main.py"), "w") as f:
         f.write(MAIN_PY.format(agent_call=agent_call))
@@ -180,6 +182,12 @@ def main() -> None:
         default=0.2,
         help="value への盤面補正 α（nn のみ・注入テストで 0.2 が最良 +0.075・0 で無効）",
     )
+    parser.add_argument(
+        "--leaf-rollouts",
+        type=int,
+        default=0,
+        help="AlphaGo 型（§38）: 葉の価値を net でなく接地ロールアウト N 本の平均に（nn のみ）",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.deck):
@@ -194,6 +202,7 @@ def main() -> None:
         net_path=args.net,
         floor_rollouts=args.floor_rollouts,
         board_bonus=args.board_bonus,
+        leaf_rollouts=args.leaf_rollouts,
     )
     size_mb = os.path.getsize(out_tar) / 1e6
     print(f"提出パッケージを作成: {out_tar} ({size_mb:.1f} MB・policy={args.policy})")

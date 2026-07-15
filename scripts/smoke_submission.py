@@ -45,6 +45,7 @@ def main() -> None:
     p.add_argument("--deck", default=None, help="デッキ CSV（既定 champion_best）")
     p.add_argument("--games", type=int, default=2, help="計測する試合数")
     p.add_argument("--floor-rollouts", type=int, default=8)
+    p.add_argument("--leaf-rollouts", type=int, default=0)
     p.add_argument(
         "--board-bonus", type=float, default=0.2, help="nn の盤面補正 α（提出と同じ）"
     )
@@ -63,6 +64,7 @@ def main() -> None:
             "net_path": args.net,
             "floor_rollouts": args.floor_rollouts,
             "board_bonus": args.board_bonus,
+            "leaf_rollouts": args.leaf_rollouts,
         }
     agent = make_kaggle_agent(
         args.policy,
