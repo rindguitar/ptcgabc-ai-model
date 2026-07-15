@@ -1,6 +1,6 @@
 # STATUS
 
-最終更新: 2026-07-13（セッション終了時に必ず更新）
+最終更新: 2026-07-16（セッション終了時に必ず更新）
 
 ## 現在のフェーズ
 **実戦 A/B を刷新**（2026-07-13 提出・両者同時スタート）:
@@ -18,18 +18,12 @@
   104決定/30.6s と適応探索がフルに稼働（エンジン型デッキ＝決定数が多く §31 の恩恵大）。
 
 ## 次の一手（優先順）
-1. **教師交代＝TeamA クローン（§36・抽出済み 10,214 サンプル）**:
-   `make teacher-tune TEACHER_SAMPLES=data/replays/teacher_teama1337.npz TEACHER_TUNE_ARGS="--out models/pvnet_teacher_teama.pt"`
-   → 一致率確認 → 提出物（a4066acd＋teama net・floor0・注入0.2）→ smoke → teacher 枠差し替え
-   （1回提出で最古＝旧 teacher が落ちる）。停止基準: 1ラウンド後も ismcts−0.10 未満なら差し戻し。
-   クローン品質の基準値（本人）: 0枚負け17%・デッキ切れ4%・負けてもサイド2〜4枚（§36）。
-   効かなければ次の弾＝サブ選択（サーチ対象）の模倣。
-2. **クローン継ぎ足し**: 1位の新規 replay を数日おきに追い DL → `make teacher-extract`（冪等）→
-   `make teacher-tune` 再実行（一致率 0.470 はデータ量律速でまだ伸びる）。
-3. **distill 継ぎ足し**: `make distill-1h`（resume・champion ミラー訓練）。新 distill_best は必ず外部 A/B。
-4. 並行: `ratchet-nn`（champion 周辺の変異探索）→ `make champion-gate` 随時。
-5. `make gauntlet-real`（実メタ 262・上位帯込みで判定プール更新）。
-
+1. **（ユーザー）A案の2連続提出**: ① submission_ismcts_a4066acd.tar.gz → ② submission.tar.gz（旗艦再ビルド・
+   相手推定332）。最終 active = [ismcts×a4066acd, ismcts×a8c57d4b] 同時スタート＝純粋なデッキ分離A/B。
+2. **（主軸・操縦強化）AlphaGo型 pilot の実装**: クローン policy を PUCT の事前分布・葉は接地ロールアウト
+   （§37 の次弾・複合誤差の正しい解）。実装後ローカル比較 → 良ければ次の枠替えで投入。
+3. 並行: ratchet-nn（デッキ軸・軽め）・日次 make replays（新A/B追跡）。
+4. （将来・要再DL）TeamA のサブ選択（サーチで何を取るか）マイニング → _generic_select のデッキ別事前分布化。
 ## 未解決・保留中の問題
 - クローンの floor 抑圧疑い（floor0=0.681 > floor8=0.588）——再判定時に floor A/B で検証。
 - nn の追い上げ可否: 探索量（cap）か evaluator の質か（§33 で「1位は3秒思考」＝質優勢の傍証）。
