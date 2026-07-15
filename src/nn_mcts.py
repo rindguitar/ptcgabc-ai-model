@@ -193,8 +193,14 @@ def _simulate(
     evaluator: Evaluator,
     rng: random.Random,
     fallback: Agent,
+    leaf_rollouts: int = 0,
 ) -> None:
-    """PUCT を1反復: 選択→（葉で）展開＋評価→逆伝播."""
+    """PUCT を1反復: 選択→（葉で）展開＋評価→逆伝播.
+
+    leaf_rollouts>0 で **AlphaGo 型（§38）**: priors は評価器（例: クローン net の手筋）を使い、
+    **葉の価値は net でなく接地ロールアウト**（fallback 方策で終局まで・ismcts と同じ）に置換する。
+    行動クローンの複合誤差（§37）を「順序付けだけ模倣・評価は実地」で構造的に回避する構成。
+    """
     path = [root]
     node = root
     while True:
@@ -203,6 +209,15 @@ def _simulate(
             break
         if not node.expanded:
             value = _expand_evaluate(node, evaluator, rng, fallback)
+            if leaf_rollouts > 0:
+                # 接地評価: net の value を捨て、ロールアウト平均で置換（priors は展開済み）。
+                # ismcts._rollout は duck-typing（search_id/obs/root_seat/terminal）で
+                # この _Node をそのまま扱える（遅延 import で循環を回避）。
+                from ismcts import _rollout
+
+                value = sum(
+                    _rollout(node, fallback, rng, 300) for _ in range(leaf_rollouts)
+                ) / leaf_rollouts
             break
         i = _puct_action(node, c_puct)
         key = tuple(node.actions[i])
@@ -260,6 +275,7 @@ def aggregate_visits(
     fallback: Agent,
     opp_pool: list[list[int]] | None = None,
     root_noise_eps: float = 0.0,
+    leaf_rollouts: int = 0,
 ) -> dict[tuple[int, ...], int]:
     """determinization 横断で PUCT を回し、根の行動別訪問数を集計して返す.
 
@@ -294,7 +310,7 @@ def aggregate_visits(
         # 2. この決定化の下で PUCT シミュレーション
         sims = max(1, n_simulations // n_determinizations)
         for _ in range(sims):
-            _simulate(root, c_puct, evaluator, rng, fallback)
+            _simulate(root, c_puct, evaluator, rng, fallback, leaf_rollouts)
         # 3. 根の行動別訪問数を決定化横断で合算
         for key, child in root.children.items():
             visits[key] = visits.get(key, 0) + child.n
@@ -316,6 +332,7 @@ def make_nn_mcts_agent(
     floor_margin: float = 0.0,
     game_budget: float | None = None,
     max_simulations: int | None = None,
+    leaf_rollouts: int = 0,
 ) -> Agent:
     """NN 誘導 MCTS（PUCT）エージェントを生成する.
 
@@ -378,6 +395,7 @@ def make_nn_mcts_agent(
             c_puct,
             fallback,
             opp_pool,
+            leaf_rollouts=leaf_rollouts,
         )
         if not visits:
             return heuristic(obs, rng)

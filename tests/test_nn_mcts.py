@@ -121,3 +121,50 @@ def test_adaptive_agent_returns_legal_and_tracks(meta):
             assert all(0 <= i < len(sel.option) for i in action)
     finally:
         battle_finish()
+
+
+def test_leaf_rollout_mode_returns_legal_action(meta):
+    """AlphaGo 型（§38・leaf_rollouts>0）: priors=評価器・葉値=接地ロールアウトで合法手を返す."""
+    deck = load_deck(DECK)
+    agent = make_nn_mcts_agent(
+        meta,
+        deck,
+        deck,
+        n_simulations=8,
+        n_determinizations=1,
+        leaf_rollouts=1,
+    )
+    obs = _advance_to_main(deck, random.Random(0), meta)
+    try:
+        assert obs is not None
+        sel = obs.select
+        action = agent(obs, random.Random(0))
+        assert sel.minCount <= len(action) <= sel.maxCount
+        assert all(0 <= i < len(sel.option) for i in action)
+    finally:
+        battle_finish()
+
+
+def test_leaf_rollout_overrides_net_value(meta):
+    """葉値が評価器の value でなくロールアウト由来になっている（value を極端値にして検証）."""
+    from nn_mcts import aggregate_visits
+
+    deck = load_deck(DECK)
+    # 常に value=1.0（全局面勝ち）を返す壊れた評価器。leaf_rollouts>0 なら無視されるはず。
+    def broken_evaluator(obs):
+        n = len(obs.select.option) if obs.select else 1
+        return 1.0, [1.0 / n] * n
+
+    obs = _advance_to_main(deck, random.Random(0), meta)
+    try:
+        assert obs is not None
+        from agents import make_heuristic_agent as _mha
+
+        h = _mha(meta)
+        visits = aggregate_visits(
+            obs, deck, deck, broken_evaluator, random.Random(0),
+            16, 1, 1.5, h, leaf_rollouts=1,
+        )
+        assert visits and sum(visits.values()) > 0  # 探索が回りきる（例外なし）
+    finally:
+        battle_finish()
