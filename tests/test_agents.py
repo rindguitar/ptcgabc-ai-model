@@ -109,3 +109,24 @@ def test_promotion_prefers_energy_loaded_bench(meta):
         deck=None,
     )
     assert _generic_select(NS(current=st, select=sel2), meta) == [2]
+
+
+def test_recycle_when_deck_low(meta):
+    """残デッキ≤閾値でリサイクル札（§39）を最優先プレイ・十分残っていれば打たない."""
+
+    rid = next((c for c, v in meta.is_deck_recycle.items() if v), None)
+    if rid is None:
+        pytest.skip("メタにリサイクル札が無い")
+    hand = [NS(id=rid)]
+    me = NS(hand=hand, discard=[], active=[_pk(1, 80)], bench=[], prize=[], deckCount=10)
+    st = NS(yourIndex=0, players=[me, NS()], stadium=None)
+    opts = [
+        NS(type=OptionType.PLAY, index=0, inPlayArea=None, inPlayIndex=None),
+        NS(type=OptionType.END, index=None, inPlayArea=None, inPlayIndex=None),
+    ]
+    sel = NS(type=SelectType.MAIN, option=opts, minCount=1, maxCount=1, deck=None)
+    obs = NS(current=st, select=sel)
+    assert _choose_main(obs, meta, random.Random(0)) == 0  # リサイクルを打つ
+
+    me.deckCount = 40  # 山が厚ければ温存（END へ）
+    assert _choose_main(obs, meta, random.Random(0)) == 1

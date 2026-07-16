@@ -31,6 +31,9 @@ _DRAWSEARCH_MASK = (1 << EFFECT_CATEGORIES.index("draw")) | (
 # 加速札をデッキに入れても操縦が打たなければ腐る（design §29）ので draw/search と同格で使う。
 _ACCEL_MASK = 1 << EFFECT_CATEGORIES.index("energy_accel")
 _DEVELOP_MASK = _DRAWSEARCH_MASK | _ACCEL_MASK
+# 山札リサイクル（§39）を発動する残デッキ閾値。1位の実測（発動中央値=残13枚）より
+# 少し早め＝掘り切る前に確実に戻せる余裕を持たせる。
+_RECYCLE_AT = 15
 
 
 def random_agent(obs: Observation, rng: random.Random) -> list[int]:
@@ -75,9 +78,22 @@ def _choose_main(
     for i, o in enumerate(opts):
         by_type.setdefault(o.type, []).append(i)
 
-    # 打つ順番（PTCG のセオリー）: ①掘る＆エネ加速 → ②進化 → ③どうぐ → ④エネ付与 →
-    # ⑤ベンチ展開 → ⑥スタジアム → ⑦攻撃。エンジンは MAIN を毎回呼ぶので、優先順が
-    # そのまま「1ターン内の手順」になる。加速/どうぐ/スタジアムを使わず腐らせる問題への対処。
+    # 打つ順番（PTCG のセオリー）: ⓪山札リサイクル（残デッキ僅少時）→ ①掘る＆エネ加速 →
+    # ②進化 → ③どうぐ → ④エネ付与 → ⑤ベンチ展開 → ⑥スタジアム → ⑦攻撃。
+    # エンジンは MAIN を毎回呼ぶので、優先順がそのまま「1ターン内の手順」になる。
+    # ⓪はデッキ切れ負け対策（§39）: 1位は残~13枚でトラッシュを山へ戻して回し続ける
+    # （本人のデッキ切れ負け4% vs 我々52% の差の正体）。掘る前に戻す＝この位置が必須。
+    if use_trainers and st is not None and OptionType.PLAY in by_type:
+        me = st.players[st.yourIndex]
+        if (me.deckCount or 0) <= _RECYCLE_AT:
+            recycle = [
+                i
+                for i in by_type[OptionType.PLAY]
+                if _is_recycle_play(opts[i], obs, meta)
+            ]
+            if recycle:
+                return recycle[0]
+
     if use_trainers:
         # 0. たね確保＋展開: draw/search/加速 のトレーナー・特性（掘る＆エネを伸ばす）
         dev = [
@@ -211,6 +227,12 @@ def _is_stadium_play(opt, obs: Observation, meta: CardMeta) -> bool:
     return cid is not None and meta.card_type.get(cid) == CardType.STADIUM
 
 
+def _is_recycle_play(opt, obs: Observation, meta: CardMeta) -> bool:
+    """PLAY が手札の山札リサイクル札（トラッシュ→山・§39）を使うものか."""
+    cid = _hand_card_id(opt, obs)
+    return cid is not None and meta.is_deck_recycle.get(cid, False)
+
+
 def _argmax_damage(opts, meta: CardMeta) -> int:
     """ATTACK オプション列の中で最大ダメージのインデックス."""
     return max(range(len(opts)), key=lambda i: meta.attack_damage(opts[i].attackId))
@@ -235,6 +257,12 @@ def _generic_select(obs: Observation, meta: CardMeta) -> list[int]:
     """
     sel = obs.select
     n = len(sel.option)
+
+    # 山へ戻す選択（リサイクル札の後続・§39）: 可能な最大数を戻す。既定の「最小数」だと
+    # リサイクルを打っても 0 枚戻し＝空振りになる（E2E プローブで実測・8回全て空振りだった）。
+    if sel.context in (SelectContext.TO_DECK, SelectContext.TO_DECK_BOTTOM):
+        take = min(len(sel.option), max(sel.minCount, sel.maxCount))
+        return list(range(take))
 
     if sel.context in (SelectContext.TO_ACTIVE, SelectContext.SWITCH):
         st = obs.current

@@ -94,6 +94,9 @@ class CardMeta:
     is_tera: dict[
         int, bool
     ]  # cardId -> tera（ベンチにいる間はワザのダメージを受けない）
+    # 山札リサイクル札（トラッシュ→山に戻す）。EFFECT_CATEGORIES には足さない
+    # （特徴量次元が変わり既存 net が全滅するため）＝独立フィールド（§39）
+    is_deck_recycle: dict[int, bool]
 
     def is_basic_pokemon(self, card_id: int) -> bool:
         """指定 cardId がたねポケモンか."""
@@ -133,6 +136,7 @@ def load_card_meta() -> CardMeta:
     is_special: dict[int, bool] = {}
     prize_value: dict[int, int] = {}
     is_tera: dict[int, bool] = {}
+    is_deck_recycle: dict[int, bool] = {}
     for c in cards:
         cid = c["cardId"]
         ctype = c.get("cardType")
@@ -151,9 +155,17 @@ def load_card_meta() -> CardMeta:
         skills = c.get("skills") or []
         has_ability[cid] = bool(skills)
         amask = 0
+        texts_l = []
         for sk in skills:
             amask |= _effect_bitmask(sk.get("text"))
+            if sk.get("text"):
+                texts_l.append(str(sk["text"]).lower())
         ability_effect[cid] = amask
+        # 山札リサイクル（トラッシュ→山に戻す）判定。EFFECT_CATEGORIES には**足さない**
+        # （足すと特徴量次元が変わり既存 net が全滅する）ため独立フィールドで持つ（§39）。
+        is_deck_recycle[cid] = any(
+            "discard pile into your deck" in t for t in texts_l
+        )
         # 構造メタ（KO/相性計算用・タイプは色コード int、無しは -1）
         pokemon_type[cid] = (
             c.get("pokemonType") if c.get("pokemonType") is not None else -1
@@ -190,4 +202,5 @@ def load_card_meta() -> CardMeta:
         is_special=is_special,
         prize_value=prize_value,
         is_tera=is_tera,
+        is_deck_recycle=is_deck_recycle,
     )
