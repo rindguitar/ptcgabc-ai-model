@@ -79,6 +79,12 @@
 | [smoke_submission.py](../../scripts/smoke_submission.py) | `smoke-submission` | 提出エージェントの煙テスト＋600秒クロック実測 |
 | [extract_replay_samples.py](../../scripts/extract_replay_samples.py) | `replay-extract` | replay JSON→value学習サンプル(state,z)を冪等抽出（両席・§25） |
 | [replay_value_tune.py](../../scripts/replay_value_tune.py) | `replay-tune` | 実戦zでvalue頭のみfine-tune（policy不変・唯一データに盤面信号が入る経路） |
+| [analyze_top_replays.py](../../scripts/analyze_top_replays.py) | `top-replays` | リーダーボード上位replayのチーム別分析（勝率/デッキ/思考時間・§33） |
+| [extract_teacher_samples.py](../../scripts/extract_teacher_samples.py) | `teacher-extract` | 任意チームの(局面→選択)を行動クローン用に抽出（冪等・§33） |
+| [teacher_tune.py](../../scripts/teacher_tune.py) | `teacher-tune` | 教師の実戦決定でpolicyを行動クローン（top-1一致率でearly stop・§33） |
+| [mine_subselects.py](../../scripts/mine_subselects.py) | - | サブ選択のペース配分マイニング（残デッキ帯別の使用率・§39） |
+| [behavior_diff.py](../../scripts/behavior_diff.py) | - | 2チームの操縦行動差分レポート（MAIN内訳/ペース/フェッチ・§40） |
+| [scout_field.py](../../scripts/scout_field.py) | - | 全チーム一括スカウト・--vsで敗因研究モード（§41） |
 | [build_submission.py](../../scripts/build_submission.py) | `submission` | 提出 tar.gz を組み立て（操縦＋デッキ＋cg を同梱） |
 
 ## 追跡外（Git 管理しない）
