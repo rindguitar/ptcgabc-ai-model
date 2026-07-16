@@ -109,6 +109,14 @@ def _choose_main(
         if dev:
             return rng.choice(dev)
 
+        # 0.5 残りの特性もすべて起動する（§40）: 行動差分で最大のギャップ＝1位は特性
+        # 8.6回/試合 vs 我々4.0。特性はエンジン回転（ドロー→展開→特性増→…）の起点で、
+        # develop-mask（draw/search/accel の効果文）に載らない特性が腐っていた。
+        # option に出る特性は合法なものだけ・1ターン1回制限もエンジン管理＝空振りしない。
+        abilities = by_type.get(OptionType.ABILITY, [])
+        if abilities:
+            return rng.choice(abilities)
+
     # 1. 進化（基本的に得）
     if OptionType.EVOLVE in by_type:
         return rng.choice(by_type[OptionType.EVOLVE])
