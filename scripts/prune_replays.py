@@ -1,0 +1,133 @@
+"""消費済み replay JSON の破棄（日次: DL → analyze → replay-extract → prune）.
+
+生 JSON を必要とする「消費者」はいずれも走査した episode_id を状態ファイルに記録する:
+  - analyze_replays.py       → data/replays/episodes_log.csv（敗因ログ＋相手デッキ収穫）
+  - extract_replay_samples.py→ data/replays/value_samples.npz の episodes（value サンプル）
+したがって **episode_id が状態ファイルに載っている＝その消費者を通過済み** と判定できる。
+
+このスクリプトは、必要な全消費者を通過済みの JSON だけを削除する:
+  1. 消費者ごとの処理済み episode_id 集合を状態ファイルから読む
+  2. ディスク上の各 JSON の episode_id（＝ファイル名 stem・EpisodeId と一致する前提）が
+     必要な全集合に含まれるかを判定
+  3. --apply 指定時のみ削除（既定は dry-run で削減量を表示するだけ）
+
+自分の試合（keep-variants）は behavior_diff / scout_field が状態を残さず随時再読み込みするため、
+既定では破棄対象から除外して温存する（--include-own で明示的に含める）。
+
+出力は数値・ID・variant 名のみ（カード名・効果文＝Pokémon Elements は扱わない）。ホストで実行可:
+    python scripts/prune_replays.py            # dry-run（何が消えるか確認）
+    python scripts/prune_replays.py --apply    # 実削除
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import glob
+import os
+
+import numpy as np
+
+
+def _analyze_ids(log_path: str) -> set[str]:
+    """analyze_replays.py が記録した処理済み episode_id（episodes_log.csv）."""
+    if not os.path.exists(log_path):
+        return set()
+    with open(log_path) as f:
+        return {r["episode_id"].split("#")[0] for r in csv.DictReader(f)}
+
+
+def _value_ids(npz_path: str) -> set[str]:
+    """extract_replay_samples.py が記録した処理済み episode_id（value_samples.npz）."""
+    if not os.path.exists(npz_path):
+        return set()
+    d = np.load(npz_path, allow_pickle=True)
+    return {str(x) for x in d["episodes"]}
+
+
+def _fmt_gb(n_bytes: int) -> str:
+    return f"{n_bytes / 1e9:.2f} GB"
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(
+        description="消費済み replay JSON の破棄（冪等・ホスト）"
+    )
+    p.add_argument("--dir", default="data/replays", help="replay JSON のルート（再帰）")
+    p.add_argument(
+        "--consumers",
+        default="analyze,value",
+        help="通過を必須とする消費者（カンマ区切り: analyze,value）",
+    )
+    p.add_argument(
+        "--keep-variants",
+        default="alphago,ismcts,nn",
+        help="温存する variant（behavior 分析が再読み込みする自分の試合）",
+    )
+    p.add_argument(
+        "--include-own",
+        action="store_true",
+        help="keep-variants も破棄対象に含める（behavior 分析を諦める場合）",
+    )
+    p.add_argument("--apply", action="store_true", help="実削除する（既定は dry-run）")
+    args = p.parse_args()
+
+    # 1. 必要な消費者の処理済み集合を読む（analyze / value）
+    wanted = {c.strip() for c in args.consumers.split(",") if c.strip()}
+    unknown = wanted - {"analyze", "value"}
+    if unknown:
+        raise SystemExit(f"未知の消費者: {sorted(unknown)}（analyze,value のみ）")
+    consumed_sets: list[set[str]] = []
+    if "analyze" in wanted:
+        consumed_sets.append(_analyze_ids(os.path.join(args.dir, "episodes_log.csv")))
+    if "value" in wanted:
+        consumed_sets.append(_value_ids(os.path.join(args.dir, "value_samples.npz")))
+    if not consumed_sets:
+        raise SystemExit("--consumers が空です（analyze,value を指定）")
+    required = set.intersection(*consumed_sets)  # 全消費者を通過した episode_id
+
+    keep_variants = {v.strip() for v in args.keep_variants.split(",") if v.strip()}
+
+    # 2. ディスク上の JSON を走査し、破棄可否を variant 別に集計する
+    paths = sorted(glob.glob(os.path.join(args.dir, "**", "*.json"), recursive=True))
+    to_delete: list[tuple[str, int]] = []  # (path, size)
+    kept_own = n_pending = 0
+    for pth in paths:
+        variant = os.path.basename(os.path.dirname(pth))
+        eid = os.path.splitext(os.path.basename(pth))[0]  # ファイル名 stem = EpisodeId
+        if not args.include_own and variant in keep_variants:
+            kept_own += 1
+            continue
+        if eid in required:
+            to_delete.append((pth, os.path.getsize(pth)))
+        else:
+            n_pending += 1  # まだ消費者を通過していない（削除しない）
+
+    # 3. 集計を表示し、--apply 時のみ削除する
+    by_var: dict[str, tuple[int, int]] = {}
+    for pth, sz in to_delete:
+        v = os.path.basename(os.path.dirname(pth))
+        n, s = by_var.get(v, (0, 0))
+        by_var[v] = (n + 1, s + sz)
+    total_bytes = sum(s for _, s in to_delete)
+
+    print(
+        f"JSON {len(paths)} 件 / 必須消費者 {sorted(wanted)} を通過済み {len(required)} episode\n"
+        f"温存（自分の試合 {sorted(keep_variants)}）: {kept_own} 件 / "
+        f"未消費で保留: {n_pending} 件\n"
+    )
+    for v in sorted(by_var):
+        n, s = by_var[v]
+        print(f"  {v:14} 破棄対象 {n:5} 件 / {_fmt_gb(s)}")
+    print(f"\n破棄対象 合計: {len(to_delete)} 件 / {_fmt_gb(total_bytes)}")
+
+    if not args.apply:
+        print("（dry-run）実削除するには --apply を付ける")
+        return
+    for pth, _ in to_delete:
+        os.remove(pth)
+    print(f"削除しました: {len(to_delete)} 件 / {_fmt_gb(total_bytes)} を解放")
+
+
+if __name__ == "__main__":
+    main()

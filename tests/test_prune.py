@@ -1,0 +1,90 @@
+"""prune_replays の破棄判定テスト（消費者通過・自分の試合の温存・dry-run）."""
+
+import csv
+import os
+import sys
+
+import numpy as np
+import pytest
+
+SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts")
+sys.path.insert(0, SCRIPTS)
+
+import prune_replays  # noqa: E402
+
+
+def _write_json(path: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write("{}")  # 中身は問わない（prune はファイル名 stem のみ使う）
+
+
+def _build(root):
+    """others に A,B（両消費者済）,D（value 未消費）・ismcts に C（自分の試合）を置く."""
+    _write_json(os.path.join(root, "others", "A.json"))
+    _write_json(os.path.join(root, "others", "B.json"))
+    _write_json(os.path.join(root, "others", "D.json"))
+    _write_json(os.path.join(root, "ismcts", "C.json"))
+    # analyze 済み: A,B,C,D すべてログ済み
+    with open(os.path.join(root, "episodes_log.csv"), "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["episode_id"])
+        w.writeheader()
+        for eid in ("A", "B", "C", "D"):
+            w.writerow({"episode_id": eid})
+    # value 済み: A,B,C のみ（D は未消費）
+    np.savez_compressed(
+        os.path.join(root, "value_samples.npz"),
+        episodes=np.asarray(["A", "B", "C"]),
+    )
+
+
+def _run(root, extra):
+    argv = ["prune_replays.py", "--dir", str(root)] + extra
+    old = sys.argv
+    sys.argv = argv
+    try:
+        prune_replays.main()
+    finally:
+        sys.argv = old
+
+
+def _exists(root, *parts):
+    return os.path.exists(os.path.join(root, *parts))
+
+
+def test_dry_run_deletes_nothing(tmp_path):
+    _build(tmp_path)
+    _run(tmp_path, [])  # 既定は dry-run
+    assert _exists(tmp_path, "others", "A.json")
+    assert _exists(tmp_path, "others", "D.json")
+
+
+def test_apply_prunes_consumed_others_only(tmp_path):
+    _build(tmp_path)
+    _run(tmp_path, ["--apply"])
+    # A,B は analyze＋value 両方済 → 破棄
+    assert not _exists(tmp_path, "others", "A.json")
+    assert not _exists(tmp_path, "others", "B.json")
+    # D は value 未消費 → 温存
+    assert _exists(tmp_path, "others", "D.json")
+    # C は自分の試合（keep-variants の ismcts）→ 温存
+    assert _exists(tmp_path, "ismcts", "C.json")
+
+
+def test_include_own_also_prunes_own_matches(tmp_path):
+    _build(tmp_path)
+    _run(tmp_path, ["--apply", "--include-own"])
+    assert not _exists(tmp_path, "ismcts", "C.json")  # 自分の試合も破棄
+
+
+def test_consumers_analyze_only_prunes_pending_value(tmp_path):
+    _build(tmp_path)
+    _run(tmp_path, ["--apply", "--consumers", "analyze"])
+    # analyze のみ必須 → D も破棄される（value 未消費でも）
+    assert not _exists(tmp_path, "others", "D.json")
+
+
+def test_unknown_consumer_errors(tmp_path):
+    _build(tmp_path)
+    with pytest.raises(SystemExit):
+        _run(tmp_path, ["--consumers", "bogus"])

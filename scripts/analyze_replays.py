@@ -48,14 +48,6 @@ def _team_names(ep: dict) -> list[str]:
     return ep.get("info", {}).get("TeamNames") or ["?", "?"]
 
 
-def _guess_my_team(episodes: list[dict]) -> str | None:
-    """最頻出のチーム名＝自分（自分は自分の全試合に出る。others/ が混ざっても頑健）."""
-    c: Counter[str] = Counter()
-    for ep in episodes:
-        c.update(set(_team_names(ep)))
-    return c.most_common(1)[0][0] if c else None
-
-
 def _deck_of(ep: dict, agent_idx: int) -> list[int] | None:
     """agent の初手 action（デッキ 60 枚のカード ID 列）を取り出す."""
     steps = ep.get("steps") or []
@@ -153,32 +145,39 @@ def main() -> None:
     )
     args = p.parse_args()
 
+    # 1. JSON パス列挙 → 2. 自チーム推定 → 3. 1 件ずつ load して集計（メモリ常駐は 1 件）。
+    # 大量の replay（others/ 含む 4GB 超）を一括 load すると OOM で殺されるため、
+    # episodes を配列に貯めず paths を回して都度 _load → 処理 → 破棄する。
     paths = sorted(glob.glob(os.path.join(args.dir, "**", "*.json"), recursive=True))
-    episodes = [(pth, _load(pth)) for pth in paths]
 
     log_rows = _read_log(args.log)
     done_ids = {r["episode_id"].split("#")[0] for r in log_rows}
 
     # 自チーム推定は others/（他チーム同士の DL 分）を除いて行う。others が大量だと
     # 最頻チーム＝他人（例: 1位の216件）になり、その対局を自分の対局として誤ログする（実障害）。
-    own_eps = [
-        ep
-        for pth, ep in episodes
-        if os.path.basename(os.path.dirname(pth)) != "others"
-    ]
-    my_team = args.team or (
-        _guess_my_team(own_eps or [ep for _, ep in episodes]) if episodes else None
-    )
-    if my_team is None and episodes:
-        raise SystemExit("自分のチームを推定できません。--team で指定")
+    # --team 指定時（通常運用）はこの推定パスを踏まないので追加コストは無い。
+    my_team = args.team
+    if my_team is None and paths:
+        c: Counter[str] = Counter()
+        for pth in paths:
+            if os.path.basename(os.path.dirname(pth)) == "others":
+                continue
+            c.update(set(_team_names(_load(pth))))
+        if not c:  # own が 1 件も無ければ others も含めて推定する
+            for pth in paths:
+                c.update(set(_team_names(_load(pth))))
+        my_team = c.most_common(1)[0][0] if c else None
+        if my_team is None:
+            raise SystemExit("自分のチームを推定できません。--team で指定")
     if my_team:
         print(f"自分のチーム: {my_team}")
-    print(f"JSON {len(episodes)} 件 / ログ既存 {len(log_rows)} 行\n")
+    print(f"JSON {len(paths)} 件 / ログ既存 {len(log_rows)} 行\n")
 
     os.makedirs(args.out_decks, exist_ok=True)
     new_rows: list[dict] = []
     n_skip = n_self = n_harvest = 0
-    for pth, ep in episodes:
+    for pth in paths:
+        ep = _load(pth)
         eid = str(
             ep.get("info", {}).get("EpisodeId")
             or os.path.splitext(os.path.basename(pth))[0]

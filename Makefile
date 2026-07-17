@@ -21,7 +21,7 @@ RUN     := $(COMPOSE) run --rm dev
 
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
-        ratchet ratchet-overnight ratchet-nn ratchet-nn-overnight gauntlet-real replays replay-extract replay-tune eval-deck champion-gate \
+        ratchet ratchet-overnight ratchet-nn ratchet-nn-overnight gauntlet-real replays replays-prune replays-daily replay-extract replay-tune eval-deck champion-gate \
         train distill distill-1h distill-overnight improve improve-1h eval-net diagnose \
         submission build rebuild shell jupyter gpu-check exec up down clean
 
@@ -148,6 +148,17 @@ MY_TEAM      ?= R.I
 REPLAYS_ARGS ?=
 replays: ## replay 分析（勝率/敗因/時間の集計＋実メタデッキ抽出・冪等・ホスト）
 	$(PY) scripts/analyze_replays.py --team "$(MY_TEAM)" $(REPLAYS_ARGS)
+
+# 消費済み JSON の破棄（analyze＋value 両方を通過した others 等・自分の試合は温存）。
+PRUNE_ARGS ?=
+replays-prune: ## 消費済み replay JSON を破棄（既定 dry-run・--apply で実削除・ホスト）
+	$(PY) scripts/prune_replays.py $(PRUNE_ARGS)
+
+# 日次一括: 分析（デッキ収穫）→ value サンプル抽出 → 消費済み JSON を自動破棄。
+replays-daily: ## 日次: replays → replay-extract → prune --apply（消費後に自動破棄・ホスト）
+	$(MAKE) replays
+	$(MAKE) replay-extract
+	$(PY) scripts/prune_replays.py --apply $(PRUNE_ARGS)
 
 # リーダーボード上位の replay を data/replays/others/ に置いて実行（チーム別成績・デッキ・時間）。
 top-replays: ## 上位チーム replay の分析（others/ 配下・チーム別勝率/デッキ/時間・ホスト）
