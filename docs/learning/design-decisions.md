@@ -663,6 +663,27 @@
   候補＝次のデッキ実験の有力株（65c6b47e / 88cc3fe1 の eval-deck）。④思考時間は勝敗と単調関係なし
   （3s の TeamH も 135s の TeamG も勝つ）＝方策の質・型の相性が支配的、の再確認。
 
+## 42. replay JSON の OOM 修正と消費済み JSON の自動破棄（2026-07-18）
+- **きっかけ**: `make replays` が Error 137（OOM kill）で落ちた。原因は others/ の収穫が増えて
+  replay が 1116 件・4.9GB に達し、`analyze_replays.py` が全 JSON を一括 load
+  （`episodes=[(pth,_load(pth)) for pth in paths]`）してメモリ 15GB を超えたこと。
+- **修正1（OOM）**: 全件配列をやめ paths を回して 1 件ずつ load→処理→破棄するストリーミングへ。
+  メモリ常駐は 1 JSON に。実測でピーク RSS 15GB 超→**1.1GB**・4.9GB を 73 秒で完走。
+  `--team` 未指定時のチーム推定も同様に軽量パス化（通常運用は `--team` 指定で追加コスト無し）。
+- **修正2（自動破棄）**: 生 JSON を必要とする消費者（analyze→`episodes_log.csv`・
+  replay-extract→`value_samples.npz`）はいずれも**走査した episode_id を状態ファイルに記録**する。
+  よって「episode_id が状態ファイルに載る＝その消費者を通過済み」と判定できる。
+  `scripts/prune_replays.py` は必須消費者を全通過した JSON のみ削除（dry-run 既定・`--apply` で実削除・冪等）。
+- **破棄条件の設計判断**: 既定は **analyze＋value 両方済**（value サンプルを取りこぼさない安全側。
+  nn 学習は凍結中でも将来再開に備える）。ファイル名 stem＝EpisodeId が全件一致することを実測で確認し、
+  JSON を開かず stem で判定（無ロード・高速）。
+- **自分の試合は温存**: alphago/ismcts/nn は behavior_diff / scout_field（§40/§41）が状態を残さず
+  随時再読み込みするため keep-variants として既定で破棄対象外（`--include-own` で含める）。
+- **日次フロー**: `make replays-daily`＝analyze→replay-extract→prune --apply（消費後に自動破棄）。
+  初回適用で others の 237 件・0.96GB を解放（4.9G→4.0G）。残り others は value 抽出後に自動対象化。
+- **教訓**: 「いつ生 JSON がまた要るか分からない」で全 replay を残すと OOM とディスク圧迫を招く。
+  消費者が処理済み ID を永続化していれば、破棄可否は状態ファイルの集合演算で機械的に決められる。
+
 ## 現在地と次の判断（2026-07-07）
 - **提出（Kaggle・3枠並走中）**: ①ISMCTS ②floored NN＋盤面補正α0.2（エネ33チャンピオン）
   ③同（実メタ構成の repaired デッキ）。実戦成績: nn 0.464 > ismcts 0.395、nn_repaired は初期 n=18 で

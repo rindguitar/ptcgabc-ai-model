@@ -1,6 +1,6 @@
 # STATUS
 
-最終更新: 2026-07-17（セッション終了時に必ず更新）
+最終更新: 2026-07-18（セッション終了時に必ず更新）
 
 ## 現在のフェーズ
 **実戦 A/B 第2ラウンド＝操縦強化の検証**（クローン章 §37 で「デッキでなく操縦」と確定）:
@@ -11,6 +11,14 @@
   ⚠️ 提出順に注意: v3 のみ提出（古い alphago 枠が落ち、ismcts 枠は残る）。
 
 ## 前回やったこと
+- **§42 replay の OOM 修正＋消費済み JSON の自動破棄**: `make replays` が Error 137（OOM）で落ちた。
+  replay が 1116 件・4.9GB に達し `analyze_replays.py` の全件一括 load が原因。ストリーミング化で
+  ピーク RSS 15GB 超→1.1GB・73秒で完走（デッキ収穫 454 件）。消費者（analyze／replay-extract）が
+  処理済み episode_id を状態ファイルに記録することを利用し、`prune_replays.py`＋`make replays-prune/
+  replays-daily` で「analyze＋value 両方済の JSON のみ自動破棄・自分の試合は温存」を実装。
+  初回適用で others 237 件・0.96GB を解放（4.9G→4.0G）。残り others 660 件は value 抽出後に対象化。
+
+
 - **§38 AlphaGo型 pilot**: クローンを操縦から降格し事前分布に。葉は接地ロールアウト
   （leaf_rollouts=1）。実戦1日目 0.441 vs ismcts 0.490（互角・続行）。
 - **§39 デッキ切れの真犯人**: 残量仮説を棄却→ deckCount 軌跡の +5 ジャンプで山札リサイクル札
@@ -35,6 +43,9 @@
    （§39 のリサイクル実装と相性が良い）。
 4. 並行（ユーザー）: make gauntlet-real → ratchet-nn-overnight → 翌朝 champion-gate。
    TeamA の定期再DL＝クローン事前分布の継ぎ足し（distill は当面スキップ）。
+5. **replay の運用は今後 `make replays-daily`（analyze→replay-extract→prune --apply）に統一**。
+   これで消費済み JSON は自動破棄される。残 others 660 件（~3.5GB）は次回 replays-daily で value 抽出後に消える。
+   容量確認のみは `make replays-prune`（dry-run）。自分の試合を消したい時だけ `PRUNE_ARGS=--include-own`。
 
 ## 未解決・保留中の問題
 - v3 の実戦判定待ち（上の3点）。§39/§40 が実戦で効かなければ次はフェッチ優先度。
@@ -42,6 +53,8 @@
 - nn 学習は凍結中（改善が詰まったら再開）。value_samples は 87,880 まで蓄積済み。
 
 ## 直近の決定事項
+- 2026-07-18: replay の OOM 修正（ストリーミング）＋消費済み JSON の自動破棄（§42・
+  破棄条件は analyze＋value 両方済・自分の試合は温存・`make replays-daily` に運用統一）。
 - 2026-07-17: gate/ratchet 分離・リサイクル§39・特性解放§40・型と実行度§41・
   マージ済みブランチ削除ルール。
 - 2026-07-16: クローン操縦は撤収（§37・2教師で同型失敗＝複合誤差）→ 資産は事前分布へ（§38）。
