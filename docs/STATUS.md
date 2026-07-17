@@ -1,6 +1,6 @@
 # STATUS
 
-最終更新: 2026-07-17（セッション終了時に必ず更新）
+最終更新: 2026-07-18（セッション終了時に必ず更新）
 
 ## 現在のフェーズ
 **実戦 A/B 第2ラウンド＝操縦強化の検証**（クローン章 §37 で「デッキでなく操縦」と確定）:
@@ -11,6 +11,22 @@
   ⚠️ 提出順に注意: v3 のみ提出（古い alphago 枠が落ち、ismcts 枠は残る）。
 
 ## 前回やったこと
+- **v3 の3点判定（scout_field で実測・§39が alphago に未伝播と判明）**: replays-daily 完走後の
+  指紋比較で alphago(v3) と ismcts が別デッキ・別挙動と確定:
+  alphago 勝率0.47・特性3.8/戦・**リサイクル13%**・a4066acd（poke19/ene7 エンジン型）／
+  ismcts 勝率0.54・特性0.1・**リサイクル84%**・a8c57d4b（poke10/ene13）。
+  **alphago の敗因1位は deck-out（敗北の43〜55%）**、ismcts は309戦で deck-out 負け3のみ。
+  原因: §39 のリサイクル⓪優先は heuristic（agents.py:81-95）にあるが、alphago は MAIN を
+  MCTS 経路（`_MCTS_SELECT_TYPES`）で決め **floor0 なので heuristic を参照せず** visit 最大手に委ねる
+  →リサイクル札を13%しか打てず deck-out。§40 の特性も3.8/戦で 4.0 からほぼ動かず（TeamA 8.6）。
+- **§42 replay の OOM 修正＋消費済み JSON の自動破棄**: `make replays` が Error 137（OOM）で落ちた。
+  replay が 1116 件・4.9GB に達し `analyze_replays.py` の全件一括 load が原因。ストリーミング化で
+  ピーク RSS 15GB 超→1.1GB・73秒で完走（デッキ収穫 454 件）。消費者（analyze／replay-extract）が
+  処理済み episode_id を状態ファイルに記録することを利用し、`prune_replays.py`＋`make replays-prune/
+  replays-daily` で「analyze＋value 両方済の JSON のみ自動破棄・自分の試合は温存」を実装。
+  初回適用で others 237 件・0.96GB を解放（4.9G→4.0G）。残り others 660 件は value 抽出後に対象化。
+
+
 - **§38 AlphaGo型 pilot**: クローンを操縦から降格し事前分布に。葉は接地ロールアウト
   （leaf_rollouts=1）。実戦1日目 0.441 vs ismcts 0.490（互角・続行）。
 - **§39 デッキ切れの真犯人**: 残量仮説を棄却→ deckCount 軌跡の +5 ジャンプで山札リサイクル札
@@ -26,15 +42,21 @@
   「マージ済みブランチは削除」を明文化し、マージ済み12ブランチをローカル・リモートとも削除。
 
 ## 次の一手（優先順）
-1. **（ユーザー）v3 提出**（未提出なら）→ 1日後 `make replays` → **3点判定**:
-   勝率／デッキ切れ率 52%→？／特性 4.0→？（behavior_diff で TeamA 基準と再比較。
-   本人基準: 0枚負け17%・デッキ切れ4%・特性8.6/戦）。
+1. **【着手予定・新ブランチ】§43 alphago にリサイクル強制手を注入**: heuristic の⓪優先
+   （残デッキ ≤ _RECYCLE_AT でリサイクル PLAY を打つ・agents.py:81-95）を nn_mcts の
+   root 手選択の前段に移植し、MCTS の visit に依存せず deck-out を塞ぐ。floor 全体を戻すと
+   勝率が落ちる（floor0=0.681 > floor8=0.588）ため、**リサイクルだけを高精度で強制**する外科的修正。
+   狙い: alphago の敗因1位（deck-out 43〜55%）を潰しつつ floor0 の勝率利得を保つ。
+   検証: 実装→eval-deck / A/B で deck-out 率とリサイクル率（13%→？）を再測。
 2. 次の武器候補: **フェッチ優先度の注入**（TeamA は id741 優先・我々は id305 過剰）
    → _generic_select にデッキ別事前分布。デッキ別 JSON の同梱機構の設計から。
 3. （counter-meta 候補）遅滞デッキ opp_65c6b47e / opp_88cc3fe1 を eval-deck で評価
    （§39 のリサイクル実装と相性が良い）。
 4. 並行（ユーザー）: make gauntlet-real → ratchet-nn-overnight → 翌朝 champion-gate。
    TeamA の定期再DL＝クローン事前分布の継ぎ足し（distill は当面スキップ）。
+5. **replay の運用は今後 `make replays-daily`（analyze→replay-extract→prune --apply）に統一**。
+   これで消費済み JSON は自動破棄される。残 others 660 件（~3.5GB）は次回 replays-daily で value 抽出後に消える。
+   容量確認のみは `make replays-prune`（dry-run）。自分の試合を消したい時だけ `PRUNE_ARGS=--include-own`。
 
 ## 未解決・保留中の問題
 - v3 の実戦判定待ち（上の3点）。§39/§40 が実戦で効かなければ次はフェッチ優先度。
@@ -42,6 +64,8 @@
 - nn 学習は凍結中（改善が詰まったら再開）。value_samples は 87,880 まで蓄積済み。
 
 ## 直近の決定事項
+- 2026-07-18: replay の OOM 修正（ストリーミング）＋消費済み JSON の自動破棄（§42・
+  破棄条件は analyze＋value 両方済・自分の試合は温存・`make replays-daily` に運用統一）。
 - 2026-07-17: gate/ratchet 分離・リサイクル§39・特性解放§40・型と実行度§41・
   マージ済みブランチ削除ルール。
 - 2026-07-16: クローン操縦は撤収（§37・2教師で同型失敗＝複合誤差）→ 資産は事前分布へ（§38）。
