@@ -336,6 +336,7 @@ def make_nn_mcts_agent(
     game_budget: float | None = None,
     max_simulations: int | None = None,
     leaf_rollouts: int = 0,
+    recycle_at: int | None = None,
 ) -> Agent:
     """NN 誘導 MCTS（PUCT）エージェントを生成する.
 
@@ -367,7 +368,8 @@ def make_nn_mcts_agent(
         # MCTS 経路は floor0 だと heuristic を一切参照しない（実測: alphago リサイクル 13% vs
         # ismcts 84%・敗因1位が deck-out 43〜55%）。残デッキ僅少時のリサイクルだけは
         # 探索の visit に委ねず確定させる（floor 全体を戻すと勝率が落ちるため、この1条件のみ）。
-        forced = find_forced_recycle(obs, meta)
+        # 発動閾値は recycle_at で上書き可（未指定＝agents._RECYCLE_AT・閾値 A/B 用）。
+        forced = find_forced_recycle(obs, meta, recycle_at)
         if forced is not None:
             return [forced]
         if game_budget is not None:

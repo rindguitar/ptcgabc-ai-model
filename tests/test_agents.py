@@ -164,6 +164,10 @@ def test_find_forced_recycle_returns_index_or_none(meta):
     me.deckCount = 40  # 山が厚ければ発動しない
     assert find_forced_recycle(obs, meta) is None
 
+    me.deckCount = 20  # 閾値の上書き（§43 A/B）: 既定15では発動せず・25なら発動
+    assert find_forced_recycle(obs, meta) is None
+    assert find_forced_recycle(obs, meta, recycle_at=25) == 1
+
     sel.type = SelectType.ATTACK  # MAIN 以外では発動しない
     me.deckCount = 10
     assert find_forced_recycle(obs, meta) is None

@@ -235,12 +235,15 @@ def _is_recycle_play(opt, obs: Observation, meta: CardMeta) -> bool:
     return cid is not None and meta.is_deck_recycle.get(cid, False)
 
 
-def find_forced_recycle(obs: Observation, meta: CardMeta) -> int | None:
+def find_forced_recycle(
+    obs: Observation, meta: CardMeta, recycle_at: int | None = None
+) -> int | None:
     """残デッキ僅少時に打つべき山札リサイクル PLAY の option index を返す（無ければ None）.
 
     §39 の⓪段（デッキ切れ対策）の判定を関数として公開し、heuristic の MAIN 優先順と
     nn_mcts の探索前プレチェック（§43）で共用する。判定: 1. MAIN 選択であること →
-    2. 手札にリサイクル札の PLAY がある → 3. 残デッキ ≤ _RECYCLE_AT なら先頭の index。
+    2. 手札にリサイクル札の PLAY がある → 3. 残デッキ ≤ 閾値なら先頭の index。
+    recycle_at で発動閾値を上書きできる（未指定は _RECYCLE_AT・v3.5 系の閾値 A/B 用）。
     """
     sel = obs.select
     st = obs.current
@@ -254,7 +257,8 @@ def find_forced_recycle(obs: Observation, meta: CardMeta) -> int | None:
     if not recycle:
         return None
     me = st.players[st.yourIndex]
-    if (me.deckCount or 0) > _RECYCLE_AT:
+    limit = _RECYCLE_AT if recycle_at is None else recycle_at
+    if (me.deckCount or 0) > limit:
         return None
     return recycle[0]
 

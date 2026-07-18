@@ -205,3 +205,8 @@ def test_forced_recycle_preempts_search(meta):
     deck = load_deck(DECK)
     agent = make_nn_mcts_agent(meta, deck, deck, n_simulations=8)
     assert agent(obs, random.Random(0)) == [0]
+
+    # 閾値の上書き（§43 A/B）: deckCount=20 は既定15では非発動域・recycle_at=25 なら発火
+    me.deckCount = 20
+    agent25 = make_nn_mcts_agent(meta, deck, deck, n_simulations=8, recycle_at=25)
+    assert agent25(obs, random.Random(0)) == [0]

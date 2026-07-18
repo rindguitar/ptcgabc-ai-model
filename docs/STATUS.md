@@ -47,10 +47,15 @@
   「マージ済みブランチは削除」を明文化し、マージ済み12ブランチをローカル・リモートとも削除。
 
 ## 次の一手（優先順）
-1. **§43 リサイクル強制手【実装済み・検証待ち】**（feature/alphago-recycle・b1c8bbc）:
-   find_forced_recycle を agents.py に公開し nn_mcts の探索前段へ注入。テスト・E2E プローブ
-   （実対局4試合で機会 4/4 発火）済み。**次: v4 提出物を再ビルド→提出→翌日 scout_field で
-   リサイクル率 13%→？と deck-out 率を再測**（ビルド/提出はユーザー側）。効けば main へマージ。
+1. **§43 リサイクル強制手【実装済み・v4/v3.5 並走 A/B へ】**（feature/alphago-recycle）:
+   find_forced_recycle を agents.py に公開し nn_mcts の探索前段へ注入（E2E: 機会 4/4 発火）。
+   閾値は `--recycle-at` でビルド時に指定可（未指定=既定15）。**ユーザー決定: 旗艦 ismcts を
+   手放し v4（閾値15）＋v3.5（閾値25）の2枠並走**で閾値の用量反応を実戦測定。
+   ビルド（ユーザー・v3 と同じ deck/net で）:
+   `build_submission.py --policy nn --net <クローンnet> --floor-rollouts 0 --leaf-rollouts 1 --deck <a4066acd> --out models/submission_alphago_v4.tar.gz`
+   ＋ 同コマンドに `--recycle-at 25 --out models/submission_alphago_v35.tar.gz`。
+   提出→翌日 replays-daily → scout_field でリサイクル率 13%→？・deck-out 率を2枠比較。
+   効いた方を残し main へマージ。
 2. 次の武器候補: **フェッチ優先度の注入**（TeamA は id741 優先・我々は id305 過剰）
    → _generic_select にデッキ別事前分布。デッキ別 JSON の同梱機構の設計から。
 3. （counter-meta 候補）遅滞デッキ opp_65c6b47e / opp_88cc3fe1 を eval-deck で評価
