@@ -22,7 +22,7 @@ RUN     := $(COMPOSE) run --rm dev
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
         ratchet ratchet-overnight ratchet-nn ratchet-nn-overnight gauntlet-real replays replays-prune replays-daily replay-extract replay-tune eval-deck champion-gate \
-        train distill distill-1h distill-overnight improve improve-1h eval-net diagnose \
+        train distill distill-1h distill-overnight improve improve-1h eval-net eval-net-ismcts diagnose \
         submission build rebuild shell jupyter gpu-check exec up down clean
 
 # --- デッキ探索（ratchet が内部で使う）の既定パラメータ --------------------
@@ -136,6 +136,13 @@ EVAL_ARGS  ?=
 eval-net: ## 訓練済みNNの確定判断用 評価（既定: 最良net・vs 実メタ・各10試合・Docker）
 	$(RUN) python scripts/eval_net.py --net $(EVAL_NET) --vs $(EVAL_VS) --games $(EVAL_GAMES) \
 		--board-bonus $(JUDGE_BONUS) $(EVAL_ARGS)
+
+# ISMCTS 操縦の基準線: 同一プール・同一 seed を ISMCTS で回す（net 不使用＝torch 不要・ホスト）。
+# net A/B（operative vs replay-tuned）に足して3点比較＝「tuned の伸び」と「ISMCTS 天井」を同時測定。
+EVAL_ISMCTS_TB ?= 0.3
+eval-net-ismcts: ## ISMCTS 操縦で実メタプールを評価（3点比較の基準線・ホスト）
+	$(PY) scripts/eval_net.py --pilot ismcts --vs meta --games $(EVAL_GAMES) \
+		--time-budget $(EVAL_ISMCTS_TB) $(EVAL_ARGS)
 
 # NN policy 診断（手を順位付けできるか等の切り分け）。詳細は diagnose_policy.py。
 DIAGNOSE_ARGS ?=

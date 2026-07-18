@@ -11,6 +11,11 @@
   ⚠️ 提出順に注意: v3 のみ提出（古い alphago 枠が落ち、ismcts 枠は残る）。
 
 ## 前回やったこと
+- **§44 replay-tune の3点比較（NN 凍結論争の決着）**: eval-net に `--pilot ismcts` を配線
+  （`make eval-net-ismcts`・ホスト可）し、operative／replay-tuned／ISMCTS を同一プールで比較。
+  tuned 0.599 < operative 0.713（12/16 相手で劣後）→ **ロールバック・replay-tune は closed**
+  （MAE 0.38→0.15 でも退行＝校正≠探索誘導）。ISMCTS(tb0.3) 0.537 < operative
+  → **「凍結 NN が評価を歪める」懸念は棄却**・評価は operative 継続・凍結は「測った上での凍結」へ。
 - **v3 の3点判定（scout_field で実測・§39が alphago に未伝播と判明）**: replays-daily 完走後の
   指紋比較で alphago(v3) と ismcts が別デッキ・別挙動と確定:
   alphago 勝率0.47・特性3.8/戦・**リサイクル13%**・a4066acd（poke19/ene7 エンジン型）／
@@ -59,11 +64,13 @@
    容量確認のみは `make replays-prune`（dry-run）。自分の試合を消したい時だけ `PRUNE_ARGS=--include-own`。
 
 ## 未解決・保留中の問題
-- v3 の実戦判定待ち（上の3点）。§39/§40 が実戦で効かなければ次はフェッチ優先度。
 - クローンの floor 抑圧疑い（floor0=0.681 > floor8=0.588）——v3 は floor0 採用済み。
-- nn 学習は凍結中（改善が詰まったら再開）。value_samples は 87,880 まで蓄積済み。
+- nn 学習は凍結中（§44 で実測根拠付き）。解除条件は「ISMCTS 実行を超える具体仮説」。
+  value_samples は 187,236 まで蓄積済み（replay-tune での利用は §44 で closed・他用途は自由）。
 
 ## 直近の決定事項
+- 2026-07-18: replay-tune はロールバック・評価は operative 継続・NN 凍結を実測で確認（§44・
+  3点比較の配線 `--pilot ismcts` は eval-net に常設）。次は §43 リサイクル注入へ。
 - 2026-07-18: replay の OOM 修正（ストリーミング）＋消費済み JSON の自動破棄（§42・
   破棄条件は analyze＋value 両方済・自分の試合は温存・`make replays-daily` に運用統一）。
 - 2026-07-17: gate/ratchet 分離・リサイクル§39・特性解放§40・型と実行度§41・
