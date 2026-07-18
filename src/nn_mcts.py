@@ -20,7 +20,7 @@ import random
 import time
 from typing import Callable
 
-from agents import Agent, make_heuristic_agent
+from agents import Agent, find_forced_recycle, make_heuristic_agent
 from cards import CardMeta
 from cg.api import (
     Observation,
@@ -215,9 +215,12 @@ def _simulate(
                 # この _Node をそのまま扱える（遅延 import で循環を回避）。
                 from ismcts import _rollout
 
-                value = sum(
-                    _rollout(node, fallback, rng, 300) for _ in range(leaf_rollouts)
-                ) / leaf_rollouts
+                value = (
+                    sum(
+                        _rollout(node, fallback, rng, 300) for _ in range(leaf_rollouts)
+                    )
+                    / leaf_rollouts
+                )
             break
         i = _puct_action(node, c_puct)
         key = tuple(node.actions[i])
@@ -360,6 +363,13 @@ def make_nn_mcts_agent(
         sel = obs.select
         if sel is None or len(sel.option) <= 1 or sel.type not in _MCTS_SELECT_TYPES:
             return heuristic(obs, rng)
+        # ⓪リサイクル強制手（§43）: §39 の deck-out 対策は heuristic の MAIN 優先順にあり、
+        # MCTS 経路は floor0 だと heuristic を一切参照しない（実測: alphago リサイクル 13% vs
+        # ismcts 84%・敗因1位が deck-out 43〜55%）。残デッキ僅少時のリサイクルだけは
+        # 探索の visit に委ねず確定させる（floor 全体を戻すと勝率が落ちるため、この1条件のみ）。
+        forced = find_forced_recycle(obs, meta)
+        if forced is not None:
+            return [forced]
         if game_budget is not None:
             sims, dets = plan_search(
                 n_simulations,
@@ -381,9 +391,7 @@ def make_nn_mcts_agent(
             return action
         return _search_and_decide(obs, rng, n_simulations, n_determinizations)
 
-    def _search_and_decide(
-        obs: Observation, rng: random.Random, sims: int, dets: int
-    ):
+    def _search_and_decide(obs: Observation, rng: random.Random, sims: int, dets: int):
         visits = aggregate_visits(
             obs,
             my_deck,

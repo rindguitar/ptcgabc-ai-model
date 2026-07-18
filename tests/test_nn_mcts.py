@@ -150,6 +150,7 @@ def test_leaf_rollout_overrides_net_value(meta):
     from nn_mcts import aggregate_visits
 
     deck = load_deck(DECK)
+
     # 常に value=1.0（全局面勝ち）を返す壊れた評価器。leaf_rollouts>0 なら無視されるはず。
     def broken_evaluator(obs):
         n = len(obs.select.option) if obs.select else 1
@@ -162,9 +163,45 @@ def test_leaf_rollout_overrides_net_value(meta):
 
         h = _mha(meta)
         visits = aggregate_visits(
-            obs, deck, deck, broken_evaluator, random.Random(0),
-            16, 1, 1.5, h, leaf_rollouts=1,
+            obs,
+            deck,
+            deck,
+            broken_evaluator,
+            random.Random(0),
+            16,
+            1,
+            1.5,
+            h,
+            leaf_rollouts=1,
         )
         assert visits and sum(visits.values()) > 0  # 探索が回りきる（例外なし）
     finally:
         battle_finish()
+
+
+def test_forced_recycle_preempts_search(meta):
+    """§43: 残デッキ僅少＋手札リサイクル札 → MCTS を回さず即その PLAY を返す.
+
+    観測はフェイク（探索に入れば determinize で必ず落ちる）＝返答できた事実が
+    「探索前に確定した」ことの証明。山が厚ければ通常の探索経路へ進む（ここでは検証しない）。
+    """
+    from types import SimpleNamespace as NS
+
+    from cg.api import OptionType
+
+    rid = next((c for c, v in meta.is_deck_recycle.items() if v), None)
+    if rid is None:
+        pytest.skip("メタにリサイクル札が無い")
+    hand = [NS(id=rid)]
+    me = NS(hand=hand, discard=[], active=[], bench=[], prize=[], deckCount=5)
+    st = NS(yourIndex=0, players=[me, NS()], stadium=None, result=-1)
+    opts = [
+        NS(type=OptionType.PLAY, index=0, inPlayArea=None, inPlayIndex=None),
+        NS(type=OptionType.END, index=None, inPlayArea=None, inPlayIndex=None),
+    ]
+    sel = NS(type=SelectType.MAIN, option=opts, minCount=1, maxCount=1, deck=None)
+    obs = NS(current=st, select=sel)
+
+    deck = load_deck(DECK)
+    agent = make_nn_mcts_agent(meta, deck, deck, n_simulations=8)
+    assert agent(obs, random.Random(0)) == [0]

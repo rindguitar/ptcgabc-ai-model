@@ -83,16 +83,10 @@ def _choose_main(
     # エンジンは MAIN を毎回呼ぶので、優先順がそのまま「1ターン内の手順」になる。
     # ⓪はデッキ切れ負け対策（§39）: 1位は残~13枚でトラッシュを山へ戻して回し続ける
     # （本人のデッキ切れ負け4% vs 我々52% の差の正体）。掘る前に戻す＝この位置が必須。
-    if use_trainers and st is not None and OptionType.PLAY in by_type:
-        me = st.players[st.yourIndex]
-        if (me.deckCount or 0) <= _RECYCLE_AT:
-            recycle = [
-                i
-                for i in by_type[OptionType.PLAY]
-                if _is_recycle_play(opts[i], obs, meta)
-            ]
-            if recycle:
-                return recycle[0]
+    if use_trainers:
+        recycle = find_forced_recycle(obs, meta)
+        if recycle is not None:
+            return recycle
 
     if use_trainers:
         # 0. たね確保＋展開: draw/search/加速 のトレーナー・特性（掘る＆エネを伸ばす）
@@ -239,6 +233,30 @@ def _is_recycle_play(opt, obs: Observation, meta: CardMeta) -> bool:
     """PLAY が手札の山札リサイクル札（トラッシュ→山・§39）を使うものか."""
     cid = _hand_card_id(opt, obs)
     return cid is not None and meta.is_deck_recycle.get(cid, False)
+
+
+def find_forced_recycle(obs: Observation, meta: CardMeta) -> int | None:
+    """残デッキ僅少時に打つべき山札リサイクル PLAY の option index を返す（無ければ None）.
+
+    §39 の⓪段（デッキ切れ対策）の判定を関数として公開し、heuristic の MAIN 優先順と
+    nn_mcts の探索前プレチェック（§43）で共用する。判定: 1. MAIN 選択であること →
+    2. 手札にリサイクル札の PLAY がある → 3. 残デッキ ≤ _RECYCLE_AT なら先頭の index。
+    """
+    sel = obs.select
+    st = obs.current
+    if sel is None or st is None or sel.type != SelectType.MAIN:
+        return None
+    recycle = [
+        i
+        for i, o in enumerate(sel.option)
+        if o.type == OptionType.PLAY and _is_recycle_play(o, obs, meta)
+    ]
+    if not recycle:
+        return None
+    me = st.players[st.yourIndex]
+    if (me.deckCount or 0) > _RECYCLE_AT:
+        return None
+    return recycle[0]
 
 
 def _argmax_damage(opts, meta: CardMeta) -> int:
