@@ -47,12 +47,10 @@
   「マージ済みブランチは削除」を明文化し、マージ済み12ブランチをローカル・リモートとも削除。
 
 ## 次の一手（優先順）
-1. **【着手予定・新ブランチ】§43 alphago にリサイクル強制手を注入**: heuristic の⓪優先
-   （残デッキ ≤ _RECYCLE_AT でリサイクル PLAY を打つ・agents.py:81-95）を nn_mcts の
-   root 手選択の前段に移植し、MCTS の visit に依存せず deck-out を塞ぐ。floor 全体を戻すと
-   勝率が落ちる（floor0=0.681 > floor8=0.588）ため、**リサイクルだけを高精度で強制**する外科的修正。
-   狙い: alphago の敗因1位（deck-out 43〜55%）を潰しつつ floor0 の勝率利得を保つ。
-   検証: 実装→eval-deck / A/B で deck-out 率とリサイクル率（13%→？）を再測。
+1. **§43 リサイクル強制手【実装済み・検証待ち】**（feature/alphago-recycle・b1c8bbc）:
+   find_forced_recycle を agents.py に公開し nn_mcts の探索前段へ注入。テスト・E2E プローブ
+   （実対局4試合で機会 4/4 発火）済み。**次: v4 提出物を再ビルド→提出→翌日 scout_field で
+   リサイクル率 13%→？と deck-out 率を再測**（ビルド/提出はユーザー側）。効けば main へマージ。
 2. 次の武器候補: **フェッチ優先度の注入**（TeamA は id741 優先・我々は id305 過剰）
    → _generic_select にデッキ別事前分布。デッキ別 JSON の同梱機構の設計から。
 3. （counter-meta 候補）遅滞デッキ opp_65c6b47e / opp_88cc3fe1 を eval-deck で評価
