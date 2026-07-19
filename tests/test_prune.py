@@ -20,21 +20,22 @@ def _write_json(path: str) -> None:
 
 
 def _build(root):
-    """others に A,B（両消費者済）,D（value 未消費）・ismcts に C（自分の試合）を置く."""
+    """others に A,B（両消費者済）,D（value 未消費）・ismcts に C・alphago_v4 に E（派生）を置く."""
     _write_json(os.path.join(root, "others", "A.json"))
     _write_json(os.path.join(root, "others", "B.json"))
     _write_json(os.path.join(root, "others", "D.json"))
     _write_json(os.path.join(root, "ismcts", "C.json"))
-    # analyze 済み: A,B,C,D すべてログ済み
+    _write_json(os.path.join(root, "alphago_v4", "E.json"))  # keep の前方一致対象
+    # analyze 済み: A,B,C,D,E すべてログ済み
     with open(os.path.join(root, "episodes_log.csv"), "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["episode_id"])
         w.writeheader()
-        for eid in ("A", "B", "C", "D"):
+        for eid in ("A", "B", "C", "D", "E"):
             w.writerow({"episode_id": eid})
-    # value 済み: A,B,C のみ（D は未消費）
+    # value 済み: A,B,C,E（D は未消費）
     np.savez_compressed(
         os.path.join(root, "value_samples.npz"),
-        episodes=np.asarray(["A", "B", "C"]),
+        episodes=np.asarray(["A", "B", "C", "E"]),
     )
 
 
@@ -69,12 +70,15 @@ def test_apply_prunes_consumed_others_only(tmp_path):
     assert _exists(tmp_path, "others", "D.json")
     # C は自分の試合（keep-variants の ismcts）→ 温存
     assert _exists(tmp_path, "ismcts", "C.json")
+    # E は派生ディレクトリ（alphago_v4）＝前方一致で温存（A/B 用 replay を守る）
+    assert _exists(tmp_path, "alphago_v4", "E.json")
 
 
 def test_include_own_also_prunes_own_matches(tmp_path):
     _build(tmp_path)
     _run(tmp_path, ["--apply", "--include-own"])
     assert not _exists(tmp_path, "ismcts", "C.json")  # 自分の試合も破棄
+    assert not _exists(tmp_path, "alphago_v4", "E.json")  # 派生も含めて破棄
 
 
 def test_consumers_analyze_only_prunes_pending_value(tmp_path):

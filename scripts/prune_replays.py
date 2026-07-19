@@ -62,7 +62,8 @@ def main() -> None:
     p.add_argument(
         "--keep-variants",
         default="alphago,ismcts,nn",
-        help="温存する variant（behavior 分析が再読み込みする自分の試合）",
+        help="温存する variant（behavior 分析が再読み込みする自分の試合）。"
+        "**前方一致**: alphago は alphago_v4 / alphago_v35 等の派生ディレクトリも温存する",
     )
     p.add_argument(
         "--include-own",
@@ -95,7 +96,10 @@ def main() -> None:
     for pth in paths:
         variant = os.path.basename(os.path.dirname(pth))
         eid = os.path.splitext(os.path.basename(pth))[0]  # ファイル名 stem = EpisodeId
-        if not args.include_own and variant in keep_variants:
+        # 温存判定は前方一致: A/B 用の派生ディレクトリ（例 alphago_v4 / alphago_v35）を
+        # keep-variants に列挙し忘れて scout 前に消してしまう事故を防ぐ
+        keep = any(variant.startswith(k) for k in keep_variants)
+        if not args.include_own and keep:
             kept_own += 1
             continue
         if eid in required:
