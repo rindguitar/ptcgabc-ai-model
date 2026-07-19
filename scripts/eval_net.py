@@ -12,7 +12,7 @@ net を使わないので torch 不要＝ホストで実行可。net A/B（opera
 
 --vs heuristic / ismcts: 同一デッキのミラー対戦（**速い大まかな確認のみ**）。
 ⚠️ **net A/B の確定判断にミラー（特に --vs ismcts）を使わないこと**。同一デッキ・単一相手の
-ミラーは非中立リファレンスで、注入等との相互作用で差を過大/過小評価する（design-decisions §25
+ミラーは非中立リファレンスで、注入等との相互作用で差を過大/過小評価する（decisions.md §25
 訂正: ミラーで operative 0.675>>replay 0.500 が実メタでは同点だった実例）。だから既定を meta にした。
 
 実行:
@@ -89,7 +89,7 @@ def main() -> None:
     bonus = f"+board{args.board_bonus}" if args.board_bonus else ""
 
     if args.vs == "meta":
-        # 実メタ相手プール（非ミラー）に対する判定＝外部基準（design-decisions §25）。
+        # 実メタ相手プール（非ミラー）に対する判定＝外部基準（decisions.md §25）。
         # eval_deck_vs_meta を共用し、--pilot で操縦を選ぶ:
         #   nn     … 提出と同じ floored NN＋盤面補正で判定（net A/B 用・要 torch）
         #   ismcts … 同一プール・同一 seed の ISMCTS 基準線（3点比較の天井・torch 不要）

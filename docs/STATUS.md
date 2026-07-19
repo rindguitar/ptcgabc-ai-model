@@ -29,7 +29,7 @@
 - 運用: prune の keep-variants を**前方一致**に修正（alphago_v4 等の A/B 派生ディレクトリの
   誤削除防止・実運用で345件温存を確認）。replays-daily は ratchet と並行実行可と確認。
 
-## 前回まで（要点のみ・詳細は design-decisions）
+## 前回まで（要点のみ・詳細は decisions.md）
 - **§44 replay-tune 3点比較**: tuned 0.599 < operative 0.713 → ロールバック。
   ISMCTS(tb0.3) 0.537 < operative → 評価は operative 継続・NN 凍結は実測根拠付きに。
 - **§43**: リサイクル強制手を nn_mcts 探索前段へ注入・`--recycle-at` で閾値指定可。

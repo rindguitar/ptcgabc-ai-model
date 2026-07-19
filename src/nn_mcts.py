@@ -57,7 +57,7 @@ def plan_search(
 
     unit_cost = 「1 simulation × 1 determinization」の実測秒（EMA・floor 込み）。未計測（初手）は
     (base_sims, base_dets)。1手予算 = 残り予算 ÷ 残り決定数の見込み、units = 予算÷単価を
-    **決定化の幅（dets）優先**で配る: この net は sims 32≈64 で深さ飽和の実測（design-decisions）が
+    **決定化の幅（dets）優先**で配る: この net は sims 32≈64 で深さ飽和の実測（decisions.md）が
     あり、不完全情報では決定化平均（PIMC）の分散低減＝§26 ベイズ推定の多サンプル化の方が効くため。
     base を床（従来品質を下回らない）・cap を天井（1手の暴走・メモリの防止）。
     """

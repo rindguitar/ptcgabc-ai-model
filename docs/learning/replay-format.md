@@ -64,6 +64,6 @@ episode JSON
   **例外: A/B 判定が未決着のアームは決着まで残す**（追加の深掘りは生 JSON にしか無い情報を使う）。
 - **他チーム**（others/）: ① `make replays`（デッキ収穫）② `make top-replays`（成績の記録）
   ③ 教師候補は `make teacher-extract` ④ **本人の基準値算出**（手数・デッキ切れ率＝
-  design-decisions §35 の教訓: クローンとの比較基準に要る）→ 削除可。
+  decisions.md §35 の教訓: クローンとの比較基準に要る）→ 削除可。
 - **迷ったら削除でなくアーカイブ**: `tar czf data/replays/archive/YYYYMMDD.tar.gz <フォルダ>`
   （容量 1/5〜1/10・後から再分析可能）。アーカイブも Competition Data＝追跡外・競技終了後に削除。

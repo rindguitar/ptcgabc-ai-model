@@ -16,7 +16,7 @@ paths:
 - 観測のフェイクは `SimpleNamespace` で軽量に組む（`tests/test_determinize.py`・`test_agents.py` 参照）。
   ただし**本番データの形は一度 dump して確認**（§31/§33 の教訓: テストが通っても実データの形と違えば no-op）。
 - 乱数は `random.Random(seed)` でシード固定＝再現性。**効果量を主張する実験は複数シードで検証**
-  （1点差はノイズ・design-decisions の用量反応/CRN 参照）。強さ検証は重いので CI では回さず
+  （1点差はノイズ・decisions.md の用量反応/CRN 参照）。強さ検証は重いので CI では回さず
   「合法な選択を返す」等の軽量確認に留める（強さは `make bench` / eval 系で別途測る）。
 - 共通の重い準備（`load_card_meta` 等）は module スコープ fixture で1回だけ。
 
