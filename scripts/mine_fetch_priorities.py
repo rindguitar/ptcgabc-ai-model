@@ -18,7 +18,13 @@ JSON を出す）。deck_hash は完全一致デッキの出所ラベルに過�
 cardId が自分のデッキの検索対象と重なっていれば別デッキ由来でも部分的に使える
 （アーキタイプが近い・キーカードが共通、等）。
 
-    python scripts/mine_fetch_priorities.py            # 全チーム一括
+**⚠️ 既定の対象は data/replays/others/（意図的に DL した上位帯）のみ**（§49）。
+自チームの対戦ログ（alphago/ismcts 等）はマッチメイキング相手＝実力の裏付けが無く、
+「教師」として不適切（実例: cardId 完全一致に釣られてマッチメイキング相手を教師扱い
+してしまった誤りが発覚）。デッキタイプ非依存の役割別集計は
+`mine_search_role_priors.py`（§50）を使う。
+
+    python scripts/mine_fetch_priorities.py            # 全チーム一括（others/）
     python scripts/mine_fetch_priorities.py --team <TeamName>  # 単一チーム
 """
 
@@ -125,7 +131,13 @@ def main() -> None:
         default=None,
         help="教師チーム名（省略時は corpus 内の全チームを一括マイニング）",
     )
-    p.add_argument("--dir", default="data/replays", help="episode JSON のルート")
+    p.add_argument(
+        "--dir",
+        default="data/replays/others",
+        help="episode JSON のルート（既定=others/＝意図的に DL した上位帯のみ。"
+        "自チームの対戦ログ(マッチメイキング相手)は実力の裏付けがないため既定除外・§49。"
+        "含めたい場合は data/replays を明示指定）",
+    )
     p.add_argument(
         "--state",
         default="data/fetch_priors/state.json",
