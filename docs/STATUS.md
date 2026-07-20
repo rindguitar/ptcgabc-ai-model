@@ -1,6 +1,6 @@
 # STATUS
 
-最終更新: 2026-07-19（セッション終了時に必ず更新）
+最終更新: 2026-07-20（セッション終了時に必ず更新）
 
 ## 現在のフェーズ
 **レート平衡の打開＝デッキ交換の検証**（§41「型が決め、操縦は実行度」路線）:
@@ -10,7 +10,18 @@
 - レートは1日で平衡に達する＝同じ提出物での追加データ収集は非生産的（ユーザー指摘）。
   平衡打開の主レバーは**デッキ交換（65c6b47e 遅滞）**。枠の選択はユーザー決定待ち。
 
-## 前回やったこと（2026-07-19）
+## 前回やったこと（2026-07-20）
+- **champion-gate（新プール＝9e3ece3f 入り）**: new 最悪0.250/平均0.458 < best 最悪0.375/平均0.641
+  → 据え置き（ノイズドリフト阻止）。best の最悪 0.375 は天敵 9e3ece3f 相当＝champion の弱点が
+  ローカル数値でも裏付けられた（実戦 alphago 系 0.22 と整合）。
+- **確定版天敵チェック合格**: 65c6b47e×測定構成（operative＋floor8＋盤面補正0.2・Docker・
+  20試合席入替）で 9e3ece3f に **0.65**。champion の 0.375 を明確に上回り、枠差し替えの
+  前提クリア。ISMCTS 操縦の 0.85（保守基準線）との差は 20 試合では有意といえず、
+  §44 の平均実測（operative 0.713 > ISMCTS 0.537）に従い構成は変更しない。
+- **提出物ビルド済み**: `models/submission_stall_v1.tar.gz`（nn＋floor8＋board0.2＋65c6b47e・
+  相手候補500デッキ同梱）。アップロードと枠選択（推奨: 弱い枠 v3.5=663）はユーザー。
+
+## 2026-07-19
 - **【撤回】「誤デプロイ」は誤報＝§43 は本番で発火100%**: 正しいペアリング
   （obs[t] への応答は **steps[t+1].action**・既存スクリプトは元から正実装）で
   v4 14/14・v3.5 17/17 発火（v3 基準 8%）。誤報原因は Claude のアドホックプローブの
@@ -39,14 +50,10 @@
   実メタ33%の a4066acd に 0.82。
 
 ## 次の一手（優先順）
-1. **（ユーザー・朝）** ratchet 終了後: `make champion-gate`（新プール＝9e3ece3f 入りで判定）
-   → **確定版天敵チェック**（測定済み構成の nn+floor8・Docker）:
-   `make eval-net EVAL_NET=models/pvnet_operative.pt EVAL_GAMES=20 EVAL_ARGS="--deck data/replays/opp_decks/opp_65c6b47e.csv --opp-glob data/replays/opp_decks/opp_9e3ece3f.csv --floor-rollouts 8"`
-   → `make replays-daily`（2日目）。
-2. **枠差し替えの決定（ユーザー）**: 65c6b47e×**測定済み構成**（operative＋floor8＋盤面補正0.2・
-   クローン事前分布は使わない＝エンジン手筋の priors は遅滞にミスマッチ）。
-   ビルド: `build_submission.py --policy nn --net models/pvnet_operative.pt --floor-rollouts 8 --board-bonus 0.2 --deck data/replays/opp_decks/opp_65c6b47e.csv --out models/submission_stall_v1.tar.gz`
+1. **枠差し替えの実行（ユーザー）**: `models/submission_stall_v1.tar.gz` をアップロード。
    候補: 弱い枠（現レートでは v3.5=663）を差し替え、v4 をエンジン基準線として残す逐次方式。
+2. **（ユーザー）** `make replays-daily`（2日目）→ 翌日以降、遅滞枠のレート＋9e3ece3f 遭遇時の
+   実戦勝率を確認（ローカル 0.65 の実戦検証）。
 3. フェッチ優先度の注入（§43 の次の可用性レバー＝発火機会の希少さ対策。TeamA は id741 優先・
    我々は id305 過剰→ _generic_select にデッキ別事前分布・デッキ別 JSON 同梱機構の設計から）。
 4. gate の判定基準に頻度加重平均の併記を検討（最悪ケース基準は出現0.9%の天敵に引きずられ
@@ -62,6 +69,8 @@
   value_samples は 199,794 まで蓄積済み（replay-tune は closed・他用途は自由）。
 
 ## 直近の決定事項
+- 2026-07-20: 新プール gate は据え置き（new 0.458 < best 0.641）。天敵チェック合格
+  （65c6×nn 構成 0.65 vs 9e3ece3f）→ submission_stall_v1 ビルド完了・枠選択待ち。
 - 2026-07-19: 誤デプロイ誤報を撤回（§43 発火100%・原因は測定側 off-by-one §45）。
   gauntlet を実メタ同期し天敵 9e3ece3f をプール入り（§46）。prune keep-variants 前方一致化。
   平衡打開はデッキ交換（65c6×測定構成）で行く方針・枠選択はユーザー決定待ち。
