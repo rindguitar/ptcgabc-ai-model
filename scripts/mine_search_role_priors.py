@@ -19,9 +19,10 @@
 ①1局面内で提示された card_type が単一か複数混在か（実測: option==deck による「制限なし」
 判定は0件だった＝TO_HAND 内でも85%が単一型に絞られている。複数型混在＝「トレーナー全般」
 等のより広いサーチの代理指標） ②State.supporterPlayed（エンジン公式フラグ）でそのターン
-サポート使用済みか、の2×2＝4バケットを追加で出す。**tohand_mixed_before は実測 N=11 と
-極小**（役割8〜9種に対し1局面/種未満）で、統計的に意味を持たないため件数を明示し、
-解釈に注意を促す。
+サポート使用済みか、の2×2＝4バケットを追加で出す。**tohand_mixed_before は実測「局面数」
+11 と極小**（役割8〜9種に対し1局面/種未満）で、統計的に意味を持たないため件数を明示し、
+解釈に注意を促す（「提示延べ枚数」は1局面で複数枚提示されると水増しされるため、
+サンプル robustness の判定には局面数を使う）。
 
 **冪等・永続**（他マイニングと同じ運用）: 処理済み episode+席とバケット×役割別カウントを
 --state に蓄積する。ペアリングは steps[i+1] 正実装（§45）。
@@ -110,13 +111,18 @@ def tohand_bucket(obs: Observation, sel, meta: CardMeta) -> str | None:
 
 
 def mine_episode_roles(
-    ep: dict, seat: int, meta: CardMeta, buckets: dict[str, dict[str, list[int]]]
+    ep: dict,
+    seat: int,
+    meta: CardMeta,
+    buckets: dict[str, dict[str, list[int]]],
+    bucket_n: dict[str, int],
 ) -> int:
     """1 episode の指定席から全サーチ局面を集計し、局面数を返す.
 
     流れ: 1. steps[i+1] 正実装ペアリング（§45）で obs/act を対応付け →
     2. サーチ局面なら buckets["overall"] へ常に加算 → 3. TO_HAND なら型混在×サポート使用の
-    サブバケットにも加算（§50）。
+    サブバケットにも加算（§50）。bucket_n は**局面数**（提示延べ枚数と違い1局面=1）で、
+    サンプル robustness の判定に使う（1局面で複数枚提示されると延べ数は水増しされるため）。
     """
     steps = ep.get("steps") or []
     n = 0
@@ -134,16 +140,18 @@ def mine_episode_roles(
         if sel is None or sel.deck is None or sel.maxCount < 1 or not sel.option:
             continue
         _record_search(sel, act, meta, buckets["overall"])
+        bucket_n["overall"] += 1
         key = tohand_bucket(obs, sel, meta)
         if key is not None:
             _record_search(sel, act, meta, buckets[key])
+            bucket_n[key] += 1
         n += 1
     return n
 
 
 def _load_state(path: str) -> dict:
     if not os.path.exists(path):
-        return {"episodes": [], "buckets": {}}
+        return {"episodes": [], "buckets": {}, "bucket_n": {}}
     with open(path) as f:
         return json.load(f)
 
@@ -171,6 +179,7 @@ def main() -> None:
     for bucket, roles in state["buckets"].items():
         for role, to in roles.items():
             buckets[bucket][role] = list(to)
+    bucket_n: dict[str, int] = defaultdict(int, state.get("bucket_n", {}))
 
     paths = sorted(glob.glob(os.path.join(args.dir, "**", "*.json"), recursive=True))
     if not paths:
@@ -190,7 +199,7 @@ def main() -> None:
             if tag in done:
                 continue
             done.add(tag)
-            n_new_sel += mine_episode_roles(ep, seat, meta, buckets)
+            n_new_sel += mine_episode_roles(ep, seat, meta, buckets, bucket_n)
             n_new_ep += 1
             teams_seen.add(names[seat])
 
@@ -198,6 +207,7 @@ def main() -> None:
     out_state = {
         "episodes": sorted(done),
         "buckets": {b: dict(roles) for b, roles in buckets.items()},
+        "bucket_n": dict(bucket_n),
     }
     with open(args.state, "w") as f:
         json.dump(out_state, f)
@@ -223,10 +233,11 @@ def main() -> None:
         roles = buckets.get(bucket)
         if not roles:
             continue
-        n_decisions = sum(o for _, o in roles.values())  # 提示延べ数（局面数の目安）
-        print(f"\n=== {bucket}（提示延べ {n_decisions}）===")
-        if bucket != "overall" and n_decisions < 100:
-            print("  ⚠️ サンプルが薄く、役割別の比較は参考程度に留める（§50）")
+        n_offered = sum(o for _, o in roles.values())  # 提示延べ枚数（水増しされうる）
+        n = bucket_n.get(bucket, 0)  # 局面数（独立サンプルの実数・統計的に信頼すべき単位）
+        print(f"\n=== {bucket}（局面数 {n}・提示延べ {n_offered}枚）===")
+        if bucket != "overall" and n < 30:
+            print(f"  ⚠️ 局面数 {n} と薄く、役割別の比較は参考程度に留める（§50）")
         ordered = sorted(roles.items(), key=lambda kv: -(kv[1][0] / kv[1][1] if kv[1][1] else -1))
         for role, (t, o) in ordered:
             if o == 0:

@@ -154,10 +154,12 @@ def test_mine_episode_roles_pairs_action_with_next_step(meta, ids):
         [{"status": "ACTIVE", "observation": None, "action": [1]}],  # ↑への応答
     ]
     buckets = defaultdict(lambda: defaultdict(lambda: [0, 0]))
-    assert mine_episode_roles({"steps": steps}, 0, meta, buckets) == 1
+    bucket_n = defaultdict(int)
+    assert mine_episode_roles({"steps": steps}, 0, meta, buckets, bucket_n) == 1
     assert buckets["overall"]["basic_energy"] == [1, 1]
     assert buckets["overall"]["basic_pokemon"] == [0, 1]
     # 型混在（たね+エネ）× サポート使用後
     assert buckets["tohand_mixed_after"]["basic_energy"] == [1, 1]
     assert buckets["tohand_mixed_after"]["basic_pokemon"] == [0, 1]
     assert "tohand_single_before" not in buckets
+    assert bucket_n == {"overall": 1, "tohand_mixed_after": 1}
