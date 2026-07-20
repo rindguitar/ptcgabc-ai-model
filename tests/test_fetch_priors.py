@@ -73,10 +73,14 @@ def _search_obs(card_ids, max_count=1, min_count=0):
     return NS(current=NS(yourIndex=0, players=[NS(), NS()]), select=sel)
 
 
-def test_search_without_priors_prefers_basic(meta, ids):
-    """priors 未指定は従来挙動: カテゴリ順（たね > エネ > その他）."""
-    obs = _search_obs([ids["other"], ids["energy"], ids["basic"]])
-    assert _generic_select(obs, meta) == [2]  # たね
+def test_search_without_priors_prefers_energy(meta, ids):
+    """priors 未指定は従来挙動: カテゴリ順（エネ > その他）.
+
+    たね優先だった旧順は §50/§51 の上位帯 replay 実測（局面数136の型混在局面で
+    たねの選好指数 lift=0.46＝明確に忌避）で撤回済み（§52）。
+    """
+    obs = _search_obs([ids["other"], ids["basic"], ids["energy"]])
+    assert _generic_select(obs, meta) == [2]  # エネ
 
 
 def test_search_with_priors_prefers_high_rate(meta, ids):
@@ -93,7 +97,7 @@ def test_search_priors_take_multiple_in_rate_order(meta, ids):
     """maxCount>1: priors 札 → カテゴリ順の残りの順で埋める（返り値は index 昇順）."""
     obs = _search_obs([ids["energy"], ids["other"], ids["basic"]], max_count=2)
     got = _generic_select(obs, meta, {ids["other"]: 0.9})
-    assert got == sorted([1, 2])  # priors 札 + たね（エネは落ちる）
+    assert got == sorted([0, 1])  # priors 札(other) + エネ（たねは§52で撤回済み・落ちる）
 
 
 def test_heuristic_agent_passes_priors(meta, ids):
@@ -106,18 +110,19 @@ def test_heuristic_agent_passes_priors(meta, ids):
 def test_search_resolves_card_via_deck_index_not_option_cardid(meta, ids):
     """option.cardId が None でも sel.deck[option.index].id で正しく解決できる（実データ形状）.
 
-    option の並びが deck の並びと一致しない（先頭が「その他」カードの deck 位置1）
-    ケースでも、index 経由の解決なら正しくたねを最優先できる（cardId 直読みなら
-    常に 0 に落ちて機能しない＝回帰ガード）。
+    option の並びが deck の並びと一致しない（先頭 option が deck 位置1=その他 を指す）
+    ケースでも、index 経由の解決なら正しくエネを優先できる。cardId 直読みの旧バグでは
+    どちらも cid=0 に落ちて同tier→tie-break で先頭 option（その他）を誤って選ぶため、
+    エネが後方の option を指す配置にして回帰ガードにしている。
     """
-    deck = [NS(id=ids["other"]), NS(id=ids["basic"])]
+    deck = [NS(id=ids["energy"]), NS(id=ids["other"])]
     opts = [
         NS(index=1, area=None, playerIndex=0, type=0, cardId=None, number=None),
         NS(index=0, area=None, playerIndex=0, type=0, cardId=None, number=None),
     ]
     sel = NS(type=SelectType.CARD, context=None, option=opts, minCount=0, maxCount=1, deck=deck)
     obs = NS(current=NS(yourIndex=0, players=[NS(), NS()]), select=sel)
-    assert _generic_select(obs, meta) == [0]  # option[0]->deck[1]=たね を選ぶ
+    assert _generic_select(obs, meta) == [1]  # option[1]->deck[0]=エネ を選ぶ
 
 
 def test_count_search_accumulates_taken_and_offered():

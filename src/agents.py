@@ -340,9 +340,12 @@ def _generic_select(
 
     - 数値選択（ドロー枚数など）は最大化。
     - セットアップのベンチ展開は可能な限り並べる。
-    - **山札からの選択（サーチ）は「たね優先→エネ優先」で maxCount まで取る**。
+    - **山札からの選択（サーチ）は「エネ優先→その他」で maxCount まで取る**。
       旧実装は最小数（多くは 0 枚）でサーチを無駄撃ちしており、トレーナー活用の妨げだった。
-      たね優先はベンチ切れ（実戦敗因の6〜7割）への直接の対策。
+      たね優先はベンチ切れ（実戦敗因の6〜7割）への直接の対策として導入したが、上位帯
+      replay 実測（§50/§51・局面数136の型混在局面）でむしろ**たねポケモンは他候補との
+      混在時に忌避される**（選好指数 lift=0.46 で明確に低い。トレーナー各種は候補数なりの
+      lift≈1.0＝優先度差なし）と判明したため撤回・たねの特別枠を廃止した。
     - **fetch_priors（§47）があるサーチでは、教師の取得率が分かる札をその率の降順で
       カテゴリ順より前に置く**（リサイクル札等のキーカードをサーチで埋没させない・
       §43 の発火機会＝札の可用性レバー）。未指定なら従来挙動。
@@ -393,7 +396,9 @@ def _generic_select(
 
     if sel.deck is not None and sel.maxCount > 0:
         # 山札からのサーチ: 1. 教師の取得率が分かる札（fetch_priors）を率の降順 →
-        # 2. 残りは たね > エネルギー > その他 のカテゴリ順、で取れるだけ取る
+        # 2. 残りは エネルギー > その他（たねポケモン含む） のカテゴリ順、で取れるだけ取る
+        # ⚠️ たねポケモンをエネより優先していた旧実装は§50/§51の実測で撤回（上記docstring）。
+        # エネ優先は上位帯実測でも lift≈1.0（否定されていない）ため維持。
         # ⚠️ 山札検索の option は cardId を持たない（area/index/playerIndex/type のみ・
         # 実測確認済み）。実カードは sel.deck[option.index].id で解決する（旧実装は
         # cardId 直読みで常に 0 ＝カテゴリ分岐が機能していなかったバグ）。
@@ -407,14 +412,12 @@ def _generic_select(
             cid = _search_card_id(i)
             if fetch_priors and cid in fetch_priors:
                 return (0, -fetch_priors[cid], i)
-            if meta.is_basic_pokemon(cid):
-                return (1, 0.0, i)
             if meta.card_type.get(cid) in (
                 CardType.BASIC_ENERGY,
                 CardType.SPECIAL_ENERGY,
             ):
-                return (2, 0.0, i)
-            return (3, 0.0, i)
+                return (1, 0.0, i)
+            return (2, 0.0, i)
 
         take = max(sel.minCount, min(sel.maxCount, n))
         return sorted(sorted(range(n), key=rank)[:take])

@@ -1,6 +1,6 @@
 # STATUS
 
-最終更新: 2026-07-20（セッション終了時に必ず更新）
+最終更新: 2026-07-21（セッション終了時に必ず更新）
 
 ## 現在のフェーズ
 **レート平衡の打開＝デッキ交換の検証**（§41「型が決め、操縦は実行度」路線）:
@@ -10,7 +10,31 @@
 - レートは1日で平衡に達する＝同じ提出物での追加データ収集は非生産的（ユーザー指摘）。
   平衡打開の主レバーは**デッキ交換（65c6b47e 遅滞）**。枠の選択はユーザー決定待ち。
 
-## 前回やったこと（2026-07-20）
+## 前回やったこと（2026-07-21・feature/fetch-priority ブランチ）
+- **§49 cardId 誤読バグを修正**: 山札サーチの `option` は cardId を持たず、実カードは
+  `sel.deck[option.index].id` で解決する必要があった（旧実装は常に0落ち＝「たね優先→
+  エネ優先」分岐が本番で一度も機能していなかった可能性）。`_generic_select`/
+  `mine_fetch_priorities` 両方を修正。§31 と同型の再発（実データ未確認のバグ）。
+- **§49 教師プールの誤りを是正**: cardId 完全一致（65c6b47e）に釣られ、**自チームの
+  対戦ログ（マッチメイキング相手＝実力の裏付けなし）を教師扱いしていた**とユーザー指摘で発覚
+  （TeamL/TeamK は実は自分の過去対局の相手）。`mine_fetch_priorities.py` の
+  既定 `--dir` を `data/replays/others`（意図的に DL した上位帯のみ）に変更。
+- **§50/§51 役割別優先度マイニング新設**（`mine_search_role_priors.py`）: cardId でなく
+  役割カテゴリで集計しデッキ非依存にプール（others/ 36チーム・局面数1262）。
+  `sel.context`（TO_HAND/TO_BENCH/ATTACH_TO）× 型混在有無 × `supporterPlayed` の
+  2軸4バケットに分離。候補数正規化（選好指数 lift）と、`sel.effect.id` で判定した
+  サーチ効果コストの捨て札優先度も追加。
+- **主要発見**: ① overall の「basic_energy 最優先」は TO_HAND 以外のコンテキスト混入の
+  アーティファクト（TO_HAND 内では energy と pokemon はほぼ拮抗）。② lift 正規化で
+  トレーナー各種の優先度差はほぼ幻（lift≈1.0）と判明、**basic_pokemon だけ明確に忌避
+  （lift=0.46・局面数136で頑健）**。
+- **§52 `_generic_select` を修正**: 山札サーチのカテゴリ順を「たね>エネ>その他」→
+  「エネ>その他（たね含む）」に変更（上記発見に基づく）。fetch_priors（tier0）は不変。
+  影響は TO_HAND の型混在局面のみ（TO_BENCH/ATTACH_TO は構造的に無風）。
+- 全テスト green（88 passed・3 skipped）・ruff clean。§47/§48（fetch_priors/threat_bonus
+  本体実装）は前回セッションで完了済み・データ待ちのまま。
+
+## 2026-07-20
 - **champion-gate（新プール＝9e3ece3f 入り）**: new 最悪0.250/平均0.458 < best 最悪0.375/平均0.641
   → 据え置き（ノイズドリフト阻止）。best の最悪 0.375 は天敵 9e3ece3f 相当＝champion の弱点が
   ローカル数値でも裏付けられた（実戦 alphago 系 0.22 と整合）。
@@ -63,20 +87,24 @@
    alphago 系は両枠退役（閾値 A/B は効果小のため打ち切り）。
 2. **（ユーザー）** `make replays-daily`（2日目）→ 翌日以降、両枠のレート差＋9e3ece3f 遭遇時の
    実戦勝率を確認。
-3. **フェッチ優先度（§47）は実装完了**（feature/fetch-priority・テスト済み）。残り:
-   - **（ユーザー）教師チームの episode を再 DL** して data/replays/others/ へ
-     （others/ は消費済みで空・マイニング元が無い）
-   - `python scripts/mine_fetch_priorities.py --team <教師名>` → priors JSON 生成
-   - priors あり/なし の local A/B（勝率＋発火機会数・Docker）→ 良ければ次の差し替え弾
+3. **フェッチ優先度（§47・cardId 単位）**: バグ修正済み（§49）だが、提出デッキ
+   （65c6b47e）に完全一致する信頼できる教師がまだ少ない（others/ 58 episode 中）。
+   `python scripts/mine_fetch_priorities.py`（--team 省略で全チーム一括・既定 others/）で
+   都度マイニングしつつ、others/ の追加 DL で厚みを待つ。
+   `_generic_select` の固定順（§52）とは独立の別レイヤ（tier0）として機能済み。
 4. **KO 脅威注入（§48）も実装完了**（同ブランチ・テスト済み）。残り: α スイープ
    （ユーザー・Docker・board_bonus と同一手順）:
    `make eval-net EVAL_NET=models/pvnet_operative.pt EVAL_GAMES=40 EVAL_ARGS="--floor-rollouts 8 --threat-bonus 0.1"`
    を α=0.1/0.2/0.3 で回し、α=0（現行）と比較。良ければ提出構成へ
-   （`build_submission.py --threat-bonus <α>`）。（§43 の次の可用性レバー＝発火機会の希少さ対策。TeamA は id741 優先・
-   我々は id305 過剰→ _generic_select にデッキ別事前分布・デッキ別 JSON 同梱機構の設計から）。
-4. gate の判定基準に頻度加重平均の併記を検討（最悪ケース基準は出現0.9%の天敵に引きずられ
+   （`build_submission.py --threat-bonus <α>`）。
+   ※ α=0.1 の初回実測（40試合×16デッキ）は最悪0.150/平均0.386 と gate 実測（0.375/0.641）
+   より悪化して見えたが、games数・プロトコルが異なり未対照。α=0 での同一条件対照が必要。
+5. **§52 の効果検証**: `_generic_select` のたね優先撤回（エネ>その他）が実戦のデッキ切れ率・
+   ベンチ切れ率（§31 の当初の狙い）にどう効くか、次の a/b や次回提出で確認する。
+   根拠が TO_HAND 型混在局面（局面数136）に偏っているため一般化は未検証。
+6. gate の判定基準に頻度加重平均の併記を検討（最悪ケース基準は出現0.9%の天敵に引きずられ
    遅滞系を不当に棄却する・要議論）。
-5. replay 運用は `make replays-daily` に統一（消費済み自動破棄・自分の試合と A/B 派生 dir は
+7. replay 運用は `make replays-daily` に統一（消費済み自動破棄・自分の試合と A/B 派生 dir は
    前方一致で温存）。プール刷新は `make gauntlet-real`（ratchet 並行可・gate/eval の起動前に）。
 
 ## 未解決・保留中の問題
@@ -87,6 +115,10 @@
   value_samples は 199,794 まで蓄積済み（replay-tune は closed・他用途は自由）。
 
 ## 直近の決定事項
+- 2026-07-21: cardId 誤読バグ修正（§49）＋教師プールを others/ 限定に是正（自チーム対戦
+  ログを教師扱いしていた誤りをユーザー指摘で発見）。役割別優先度マイニング新設（§50/§51）で
+  「たね優先」が上位帯実測（lift=0.46）で否定されたため `_generic_select` を修正（§52・
+  エネ>その他のみに）。効果検証は次の a/b・提出で。
 - 2026-07-20: 新プール gate は据え置き（new 0.458 < best 0.641）。天敵チェック合格
   （65c6×nn 構成 0.65 vs 9e3ece3f）→ submission_stall_v1 ビルド完了。
   **両枠を遅滞デッキへ差し替え決定（ユーザー）**: 枠1=ISMCTS 操縦・枠2=nn 測定構成の
