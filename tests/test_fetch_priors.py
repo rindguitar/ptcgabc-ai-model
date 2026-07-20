@@ -50,15 +50,25 @@ def ids(meta):
 
 
 def _search_obs(card_ids, max_count=1, min_count=0):
-    """山札サーチ（sel.deck あり）の観測フェイクを組む."""
-    opts = [NS(cardId=c, number=None, index=i) for i, c in enumerate(card_ids)]
+    """山札サーチ（sel.deck あり）の観測フェイクを組む.
+
+    ⚠️ 実データ形状（replay JSON で実測確認済み）: option は cardId を持たず
+    area/index/playerIndex/type のみ。実カードは sel.deck[option.index].id で解決する
+    （option[i] は deck[i] を指す 1:1 対応にして単純化）。cardId=None を明示し、
+    実装が誤って cardId を直読みしないことをテストで保証する。
+    """
+    deck = [NS(id=c) for c in card_ids]
+    opts = [
+        NS(index=i, area=None, playerIndex=0, type=0, cardId=None, number=None)
+        for i in range(len(card_ids))
+    ]
     sel = NS(
         type=SelectType.CARD,
         context=None,
         option=opts,
         minCount=min_count,
         maxCount=max_count,
-        deck=[1] * 10,
+        deck=deck,
     )
     return NS(current=NS(yourIndex=0, players=[NS(), NS()]), select=sel)
 
@@ -93,6 +103,23 @@ def test_heuristic_agent_passes_priors(meta, ids):
     assert agent(obs, random.Random(0)) == [1]
 
 
+def test_search_resolves_card_via_deck_index_not_option_cardid(meta, ids):
+    """option.cardId が None でも sel.deck[option.index].id で正しく解決できる（実データ形状）.
+
+    option の並びが deck の並びと一致しない（先頭が「その他」カードの deck 位置1）
+    ケースでも、index 経由の解決なら正しくたねを最優先できる（cardId 直読みなら
+    常に 0 に落ちて機能しない＝回帰ガード）。
+    """
+    deck = [NS(id=ids["other"]), NS(id=ids["basic"])]
+    opts = [
+        NS(index=1, area=None, playerIndex=0, type=0, cardId=None, number=None),
+        NS(index=0, area=None, playerIndex=0, type=0, cardId=None, number=None),
+    ]
+    sel = NS(type=SelectType.CARD, context=None, option=opts, minCount=0, maxCount=1, deck=deck)
+    obs = NS(current=NS(yourIndex=0, players=[NS(), NS()]), select=sel)
+    assert _generic_select(obs, meta) == [0]  # option[0]->deck[1]=たね を選ぶ
+
+
 def test_count_search_accumulates_taken_and_offered():
     """_count_search: 提示は全 option・取得は応答 index の札に加算。非サーチは無視."""
     counts = defaultdict(lambda: [0, 0])
@@ -114,9 +141,10 @@ def test_mine_episode_pairs_action_with_next_step():
         "logs": [],
         "select": {
             "type": int(SelectType.CARD),
+            # ⚠️ 実データ形状: option は cardId を持たず index で deck を指す（実測確認済み）
             "option": [
-                {"type": 0, "cardId": 11},
-                {"type": 0, "cardId": 22},
+                {"type": 0, "index": 0},
+                {"type": 0, "index": 1},
             ],
             "minCount": 0,
             "maxCount": 1,
@@ -125,7 +153,10 @@ def test_mine_episode_pairs_action_with_next_step():
             "remainEnergyCost": 0,
             "contextCard": None,
             "effect": None,
-            "deck": [{"id": 1, "serial": 0, "playerIndex": 0}],
+            "deck": [
+                {"id": 11, "serial": 0, "playerIndex": 0},
+                {"id": 22, "serial": 1, "playerIndex": 0},
+            ],
         },
     }
     steps = [

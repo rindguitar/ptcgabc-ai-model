@@ -394,8 +394,17 @@ def _generic_select(
     if sel.deck is not None and sel.maxCount > 0:
         # 山札からのサーチ: 1. 教師の取得率が分かる札（fetch_priors）を率の降順 →
         # 2. 残りは たね > エネルギー > その他 のカテゴリ順、で取れるだけ取る
+        # ⚠️ 山札検索の option は cardId を持たない（area/index/playerIndex/type のみ・
+        # 実測確認済み）。実カードは sel.deck[option.index].id で解決する（旧実装は
+        # cardId 直読みで常に 0 ＝カテゴリ分岐が機能していなかったバグ）。
+        def _search_card_id(i: int) -> int:
+            idx = sel.option[i].index
+            if idx is None or sel.deck is None or not (0 <= idx < len(sel.deck)):
+                return 0
+            return sel.deck[idx].id or 0
+
         def rank(i: int) -> tuple[int, float, int]:
-            cid = sel.option[i].cardId or 0
+            cid = _search_card_id(i)
             if fetch_priors and cid in fetch_priors:
                 return (0, -fetch_priors[cid], i)
             if meta.is_basic_pokemon(cid):

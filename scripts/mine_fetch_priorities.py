@@ -48,21 +48,33 @@ def _deck_of(ep: dict, seat: int) -> list[int] | None:
     return None
 
 
+def _search_card_id(sel, option_i: int) -> int:
+    """山札検索 option の実カード ID を解決する.
+
+    ⚠️ option は cardId を持たない（area/index/playerIndex/type のみ・実測確認済み）。
+    実カードは sel.deck[option.index].id で解決する（agents._generic_select と同じ修正）。
+    """
+    idx = sel.option[option_i].index
+    if idx is None or sel.deck is None or not (0 <= idx < len(sel.deck)):
+        return 0
+    return sel.deck[idx].id or 0
+
+
 def _count_search(obs, act: list[int], counts: dict[int, list[int]]) -> bool:
     """1つの山札サーチ選択を counts（cardId -> [取得, 提示]）へ加算する.
 
     流れ: 1. select が山札からの選択（sel.deck あり）か判定 → 2. 提示された全 option の
-    cardId を「提示」に加算 → 3. act（応答 index 列）が指す cardId を「取得」に加算。
-    サーチでなければ何もせず False。テスト容易性のためロジックをこの関数に分離。
+    実カード ID（sel.deck[index].id）を「提示」に加算 → 3. act（応答 index 列）が指す
+    カード ID を「取得」に加算。サーチでなければ何もせず False。
     """
     sel = obs.select
     if sel is None or sel.deck is None or sel.maxCount < 1 or not sel.option:
         return False
-    for o in sel.option:
-        counts[o.cardId or 0][1] += 1
+    for i in range(len(sel.option)):
+        counts[_search_card_id(sel, i)][1] += 1
     for idx in act:
         if 0 <= idx < len(sel.option):
-            counts[sel.option[idx].cardId or 0][0] += 1
+            counts[_search_card_id(sel, idx)][0] += 1
     return True
 
 
