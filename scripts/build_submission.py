@@ -94,6 +94,7 @@ def build(
     board_bonus: float = 0.2,
     leaf_rollouts: int = 0,
     recycle_at: int | None = None,
+    fetch_priors: str | None = None,
 ) -> tuple[str, list[str]]:
     """提出パッケージを組み立てて (tar パス, 同梱物一覧) を返す."""
     build_dir = os.path.join(ROOT, "models", "submission")
@@ -130,6 +131,10 @@ def build(
     if policy == "nn":
         # 学習済み重みを root 直下 pvnet.pt に固定名で同梱（main.py の net_path と一致させる）
         shutil.copy(net_path, os.path.join(build_dir, "pvnet.pt"))
+    if fetch_priors:
+        # 山札サーチ優先度（§47）を固定名で同梱。make_kaggle_agent が既定パス
+        # fetch_priors.json を自動で読む（無ければ従来挙動＝main.py の変更は不要）。
+        shutil.copy(fetch_priors, os.path.join(build_dir, "fetch_priors.json"))
 
     # 相手候補デッキ群（観測整合の相手デッキ推定＝ベイズ事前分布）。中立名で同梱
     # （Pokémon 名を避ける）。実 replay から抽出した相手デッキ（data/replays/opp_decks/）を
@@ -203,12 +208,19 @@ def main() -> None:
         default=None,
         help="リサイクル強制手（§43）の発動閾値（nn のみ・未指定=既定15・閾値 A/B 用。例 25）",
     )
+    parser.add_argument(
+        "--fetch-priors",
+        default=None,
+        help="山札サーチ優先度 JSON（§47・mine_fetch_priorities.py の出力）を同梱する",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.deck):
         raise SystemExit(f"デッキが見つかりません: {args.deck}（先にリーグを実行）")
     if args.policy == "nn" and not (args.net and os.path.exists(args.net)):
         raise SystemExit(f"--policy nn には学習済みネットが必要: --net {args.net}")
+    if args.fetch_priors and not os.path.exists(args.fetch_priors):
+        raise SystemExit(f"fetch-priors が見つかりません: {args.fetch_priors}")
 
     out_tar, names = build(
         args.deck,
@@ -219,6 +231,7 @@ def main() -> None:
         board_bonus=args.board_bonus,
         leaf_rollouts=args.leaf_rollouts,
         recycle_at=args.recycle_at,
+        fetch_priors=args.fetch_priors,
     )
     size_mb = os.path.getsize(out_tar) / 1e6
     print(f"提出パッケージを作成: {out_tar} ({size_mb:.1f} MB・policy={args.policy})")

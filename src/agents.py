@@ -45,7 +45,11 @@ def random_agent(obs: Observation, rng: random.Random) -> list[int]:
     return rng.sample(range(len(sel.option)), count)
 
 
-def make_heuristic_agent(meta: CardMeta, use_trainers: bool = True) -> Agent:
+def make_heuristic_agent(
+    meta: CardMeta,
+    use_trainers: bool = True,
+    fetch_priors: dict[int, float] | None = None,
+) -> Agent:
     """貪欲ヒューリスティックエージェントを生成する.
 
     方針（MAIN 選択）: **draw/search トレーナーを使う** → 進化 → エネ付与（アクティブ優先）
@@ -55,6 +59,9 @@ def make_heuristic_agent(meta: CardMeta, use_trainers: bool = True) -> Agent:
     use_trainers=False で旧挙動（トレーナー完全不使用）に戻せる（A/B 検証用）。
     旧挙動は「グッズの価値を系統的に過小評価→league がエネ過多デッキへ収束」の根因だった。
     draw/search 以外のトレーナー（妨害・回復等）は引き続き使わない（誤爆リスク回避）。
+
+    fetch_priors: 山札サーチの取得優先度 {cardId: 教師の取得率}（§47・デッキ別）。
+    未指定なら従来のカテゴリ順のみ＝挙動不変。
     """
 
     def heuristic_agent(obs: Observation, rng: random.Random) -> list[int]:
@@ -63,7 +70,7 @@ def make_heuristic_agent(meta: CardMeta, use_trainers: bool = True) -> Agent:
             return [_choose_main(obs, meta, rng, use_trainers)]
         if sel.type == SelectType.ATTACK:
             return [_argmax_damage(sel.option, meta)]
-        return _generic_select(obs, meta)
+        return _generic_select(obs, meta, fetch_priors)
 
     return heuristic_agent
 
@@ -273,7 +280,11 @@ def _argmax_damage_indices(indices: list[int], opts, meta: CardMeta) -> int:
     return max(indices, key=lambda i: meta.attack_damage(opts[i].attackId))
 
 
-def _generic_select(obs: Observation, meta: CardMeta) -> list[int]:
+def _generic_select(
+    obs: Observation,
+    meta: CardMeta,
+    fetch_priors: dict[int, float] | None = None,
+) -> list[int]:
     """MAIN/ATTACK 以外のサブ選択を無難に処理する.
 
     - 数値選択（ドロー枚数など）は最大化。
@@ -281,6 +292,9 @@ def _generic_select(obs: Observation, meta: CardMeta) -> list[int]:
     - **山札からの選択（サーチ）は「たね優先→エネ優先」で maxCount まで取る**。
       旧実装は最小数（多くは 0 枚）でサーチを無駄撃ちしており、トレーナー活用の妨げだった。
       たね優先はベンチ切れ（実戦敗因の6〜7割）への直接の対策。
+    - **fetch_priors（§47）があるサーチでは、教師の取得率が分かる札をその率の降順で
+      カテゴリ順より前に置く**（リサイクル札等のキーカードをサーチで埋没させない・
+      §43 の発火機会＝札の可用性レバー）。未指定なら従来挙動。
     - **昇格/交代先（TO_ACTIVE/SWITCH）はエネが乗り HP の残る子を優先**（§31。旧実装は
       先頭固定＝KO 後に空のたねを前に出してサイドレースを落としていた）。
     - それ以外は必要最小数を先頭から選ぶ（任意選択は見送る）。
@@ -327,17 +341,20 @@ def _generic_select(obs: Observation, meta: CardMeta) -> list[int]:
         return list(range(min(sel.maxCount, n)))
 
     if sel.deck is not None and sel.maxCount > 0:
-        # 山札からのサーチ: たね > エネルギー > その他 の順に価値付けして取れるだけ取る
-        def rank(i: int) -> tuple[int, int]:
+        # 山札からのサーチ: 1. 教師の取得率が分かる札（fetch_priors）を率の降順 →
+        # 2. 残りは たね > エネルギー > その他 のカテゴリ順、で取れるだけ取る
+        def rank(i: int) -> tuple[int, float, int]:
             cid = sel.option[i].cardId or 0
+            if fetch_priors and cid in fetch_priors:
+                return (0, -fetch_priors[cid], i)
             if meta.is_basic_pokemon(cid):
-                return (0, i)
+                return (1, 0.0, i)
             if meta.card_type.get(cid) in (
                 CardType.BASIC_ENERGY,
                 CardType.SPECIAL_ENERGY,
             ):
-                return (1, i)
-            return (2, i)
+                return (2, 0.0, i)
+            return (3, 0.0, i)
 
         take = max(sel.minCount, min(sel.maxCount, n))
         return sorted(sorted(range(n), key=rank)[:take])

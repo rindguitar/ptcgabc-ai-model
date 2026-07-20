@@ -73,6 +73,8 @@ step t に「観測を見せた」記録、step t+1 に「返ってきた行動�
   **例外: A/B 判定が未決着のアームは決着まで残す**（追加の深掘りは生 JSON にしか無い情報を使う）。
 - **他チーム**（others/）: ① `make replays`（デッキ収穫）② `make top-replays`（成績の記録）
   ③ 教師候補は `make teacher-extract` ④ **本人の基準値算出**（手数・デッキ切れ率＝
-  decisions.md §35 の教訓: クローンとの比較基準に要る）→ 削除可。
+  decisions.md §35 の教訓: クローンとの比較基準に要る）
+  ⑤ 教師チームは `python scripts/mine_fetch_priorities.py --team <教師名>`
+  （サーチ取得優先度 §47・data/fetch_priors/ へ冪等蓄積）→ 削除可。
 - **迷ったら削除でなくアーカイブ**: `tar czf data/replays/archive/YYYYMMDD.tar.gz <フォルダ>`
   （容量 1/5〜1/10・後から再分析可能）。アーカイブも Competition Data＝追跡外・競技終了後に削除。
