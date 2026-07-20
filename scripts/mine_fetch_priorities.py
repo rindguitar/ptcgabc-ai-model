@@ -13,7 +13,13 @@ episode+席 を --state に追記蓄積する。**絞ったら生 JSON は削除
 
 出力はすべて数値・ID まで（Pokémon Elements 非表示・規約遵守）。
 
-    python scripts/mine_fetch_priorities.py --team <TeamName> [--dir data/replays]
+--team は省略可（省略時は corpus 内の全チームを一括マイニングし team×deck_hash 別に
+JSON を出す）。deck_hash は完全一致デッキの出所ラベルに過ぎず、実採用時は priors の
+cardId が自分のデッキの検索対象と重なっていれば別デッキ由来でも部分的に使える
+（アーキタイプが近い・キーカードが共通、等）。
+
+    python scripts/mine_fetch_priorities.py            # 全チーム一括
+    python scripts/mine_fetch_priorities.py --team <TeamName>  # 単一チーム
 """
 
 from __future__ import annotations
@@ -114,7 +120,11 @@ def _sanitize(name: str) -> str:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="山札サーチ取得優先度のマイニング（§47）")
-    p.add_argument("--team", required=True, help="教師チーム名")
+    p.add_argument(
+        "--team",
+        default=None,
+        help="教師チーム名（省略時は corpus 内の全チームを一括マイニング）",
+    )
     p.add_argument("--dir", default="data/replays", help="episode JSON のルート")
     p.add_argument(
         "--state",
@@ -148,13 +158,15 @@ def main() -> None:
         names = ep.get("info", {}).get("TeamNames") or ["?", "?"]
         for seat in (0, 1):
             tag = f"{eid}#{seat}"
-            if names[seat] != args.team or tag in done:
+            # --team 省略時は corpus 内の全チームを対象にする（低勝率player も含め
+            # 冪等・永続で溜め、実採用は後段で team/deck を選んで行う＝top-replays と同じ思想）
+            if (args.team is not None and names[seat] != args.team) or tag in done:
                 continue
             done.add(tag)
             deck = _deck_of(ep, seat)
             if deck is None:  # デッキ不明＝帰属できないので数えない（処理済みには記録）
                 continue
-            key = f"{args.team}|{_deck_hash(deck)}"
+            key = f"{names[seat]}|{_deck_hash(deck)}"
             entry = keys.setdefault(key, {"episodes": 0, "selects": 0, "counts": {}})
             counts = defaultdict(lambda: [0, 0])
             for cid, to in entry["counts"].items():
@@ -174,7 +186,7 @@ def main() -> None:
     print(f"新規 {n_new} 席分を集計（累計 {len(done)} 席）→ {args.state}")
     for key, entry in sorted(keys.items()):
         team, dh = key.split("|", 1)
-        if team != args.team:
+        if args.team is not None and team != args.team:
             continue
         priors = {
             cid: t / o
