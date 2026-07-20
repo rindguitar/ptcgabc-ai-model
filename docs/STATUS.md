@@ -63,7 +63,11 @@
    alphago 系は両枠退役（閾値 A/B は効果小のため打ち切り）。
 2. **（ユーザー）** `make replays-daily`（2日目）→ 翌日以降、両枠のレート差＋9e3ece3f 遭遇時の
    実戦勝率を確認。
-3. フェッチ優先度の注入（並行実装し次の差し替え弾にする）（§43 の次の可用性レバー＝発火機会の希少さ対策。TeamA は id741 優先・
+3. **フェッチ優先度（§47）は実装完了**（feature/fetch-priority・テスト済み）。残り:
+   - **（ユーザー）教師チームの episode を再 DL** して data/replays/others/ へ
+     （others/ は消費済みで空・マイニング元が無い）
+   - `python scripts/mine_fetch_priorities.py --team <教師名>` → priors JSON 生成
+   - priors あり/なし の local A/B（勝率＋発火機会数・Docker）→ 良ければ次の差し替え弾（§43 の次の可用性レバー＝発火機会の希少さ対策。TeamA は id741 優先・
    我々は id305 過剰→ _generic_select にデッキ別事前分布・デッキ別 JSON 同梱機構の設計から）。
 4. gate の判定基準に頻度加重平均の併記を検討（最悪ケース基準は出現0.9%の天敵に引きずられ
    遅滞系を不当に棄却する・要議論）。
