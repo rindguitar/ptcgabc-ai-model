@@ -79,6 +79,12 @@ def main() -> None:
         default=0.0,
         help="value への盤面補正の注入 α（v2.3 事前検証用・0 で無効。例 0.1）",
     )
+    p.add_argument(
+        "--threat-bonus",
+        type=float,
+        default=0.0,
+        help="value への KO 脅威注入 α（§48・0 で無効。α スイープで実測して決める）",
+    )
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
 
@@ -87,6 +93,7 @@ def main() -> None:
     rng = random.Random(args.seed)
     net_name = os.path.basename(args.net)
     bonus = f"+board{args.board_bonus}" if args.board_bonus else ""
+    bonus += f"+threat{args.threat_bonus}" if args.threat_bonus else ""
 
     if args.vs == "meta":
         # 実メタ相手プール（非ミラー）に対する判定＝外部基準（decisions.md §25）。
@@ -119,6 +126,7 @@ def main() -> None:
             nn_sims=args.sims,
             floor_rollouts=args.floor_rollouts,
             board_bonus=args.board_bonus,
+            threat_bonus=args.threat_bonus,
         )
         if args.pilot == "nn":
             import torch
@@ -144,7 +152,7 @@ def main() -> None:
 
     from agents import make_heuristic_agent
     from harness import evaluate
-    from nn_eval import make_net_evaluator, wrap_board_bonus
+    from nn_eval import make_net_evaluator, wrap_board_bonus, wrap_threat_bonus
     from nn_mcts import make_nn_mcts_agent
     from train import load_net
 
@@ -153,6 +161,8 @@ def main() -> None:
     evaluator = make_net_evaluator(net, meta, device)
     if args.board_bonus:
         evaluator = wrap_board_bonus(evaluator, args.board_bonus)
+    if args.threat_bonus:
+        evaluator = wrap_threat_bonus(evaluator, meta, args.threat_bonus)
     nn_agent = make_nn_mcts_agent(
         meta,
         deck,

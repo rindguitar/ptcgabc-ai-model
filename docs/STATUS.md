@@ -67,7 +67,12 @@
    - **（ユーザー）教師チームの episode を再 DL** して data/replays/others/ へ
      （others/ は消費済みで空・マイニング元が無い）
    - `python scripts/mine_fetch_priorities.py --team <教師名>` → priors JSON 生成
-   - priors あり/なし の local A/B（勝率＋発火機会数・Docker）→ 良ければ次の差し替え弾（§43 の次の可用性レバー＝発火機会の希少さ対策。TeamA は id741 優先・
+   - priors あり/なし の local A/B（勝率＋発火機会数・Docker）→ 良ければ次の差し替え弾
+4. **KO 脅威注入（§48）も実装完了**（同ブランチ・テスト済み）。残り: α スイープ
+   （ユーザー・Docker・board_bonus と同一手順）:
+   `make eval-net EVAL_NET=models/pvnet_operative.pt EVAL_GAMES=40 EVAL_ARGS="--floor-rollouts 8 --threat-bonus 0.1"`
+   を α=0.1/0.2/0.3 で回し、α=0（現行）と比較。良ければ提出構成へ
+   （`build_submission.py --threat-bonus <α>`）。（§43 の次の可用性レバー＝発火機会の希少さ対策。TeamA は id741 優先・
    我々は id305 過剰→ _generic_select にデッキ別事前分布・デッキ別 JSON 同梱機構の設計から）。
 4. gate の判定基準に頻度加重平均の併記を検討（最悪ケース基準は出現0.9%の天敵に引きずられ
    遅滞系を不当に棄却する・要議論）。

@@ -28,18 +28,20 @@ def eval_deck_vs_meta(
     nn_sims=64,
     floor_rollouts=0,
     board_bonus=0.0,
+    threat_bonus=0.0,
 ) -> dict:
     """deck を opps（メタ群）に対し評価し per_opp/最悪/平均を返す（gate からも使う）.
 
     pilot: ismcts（特性対応・遅い）/ nn（蒸留NN-MCTS・ISMCTS同等を高速・要 torch）/
     heuristic（速いが特性/効果を使わない）。
-    floor_rollouts>0 は nn に接地 floor、board_bonus>0 は盤面補正＝**提出と同じ操縦で判定**する。
+    floor_rollouts>0 は nn に接地 floor、board_bonus>0 は盤面補正、threat_bonus>0 は
+    KO 脅威注入（§48）＝**提出と同じ操縦で判定**する。
     """
     if pilot == "nn":
         # 蒸留 NN-MCTS：ISMCTS 同等の強さを ~1/4 時間で（torch/GPU・要 Docker）
         import torch
 
-        from nn_eval import make_net_evaluator, wrap_board_bonus
+        from nn_eval import make_net_evaluator, wrap_board_bonus, wrap_threat_bonus
         from nn_mcts import make_nn_mcts_agent
         from train import load_net
 
@@ -48,6 +50,8 @@ def eval_deck_vs_meta(
         _ev = make_net_evaluator(_net, meta, device)
         if board_bonus:
             _ev = wrap_board_bonus(_ev, board_bonus)
+        if threat_bonus:
+            _ev = wrap_threat_bonus(_ev, meta, threat_bonus)
 
         def factory(my_deck, opp_deck):
             return make_nn_mcts_agent(

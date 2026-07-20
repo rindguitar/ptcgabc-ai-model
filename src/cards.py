@@ -97,6 +97,9 @@ class CardMeta:
     # 山札リサイクル札（トラッシュ→山に戻す）。EFFECT_CATEGORIES には足さない
     # （特徴量次元が変わり既存 net が全滅するため）＝独立フィールド（§39）
     is_deck_recycle: dict[int, bool]
+    # --- 脅威推定（§48）用: ワザの必要エネ数とカード→ワザ対応（独立フィールド＝特徴量不変）---
+    attack_cost: dict[int, int]  # attackId -> 必要エネ数（色は数えない・枚数のみ）
+    card_attacks: dict[int, list[int]]  # cardId -> attackId のリスト
 
     def is_basic_pokemon(self, card_id: int) -> bool:
         """指定 cardId がたねポケモンか."""
@@ -137,6 +140,7 @@ def load_card_meta() -> CardMeta:
     prize_value: dict[int, int] = {}
     is_tera: dict[int, bool] = {}
     is_deck_recycle: dict[int, bool] = {}
+    card_attacks: dict[int, list[int]] = {}
     for c in cards:
         cid = c["cardId"]
         ctype = c.get("cardType")
@@ -145,6 +149,7 @@ def load_card_meta() -> CardMeta:
         hp[cid] = int(c.get("hp") or 0)
         energy_type[cid] = c.get("energyType")
         aids = c.get("attacks") or []
+        card_attacks[cid] = [int(a) for a in aids]  # 脅威推定（§48）でワザ列を引く
         # 札の最大ワザダメージ（構成生成で「強い攻撃役」を選ぶ際の質の代理指標）
         best_damage[cid] = max((damage.get(aid, 0) for aid in aids), default=0)
         # 威力効率の最良値（少エネで大ダメージ＝回しやすい攻撃役の代理）
@@ -203,4 +208,6 @@ def load_card_meta() -> CardMeta:
         prize_value=prize_value,
         is_tera=is_tera,
         is_deck_recycle=is_deck_recycle,
+        attack_cost=cost,
+        card_attacks=card_attacks,
     )

@@ -34,6 +34,11 @@ _DEVELOP_MASK = _DRAWSEARCH_MASK | _ACCEL_MASK
 # 山札リサイクル（§39）を発動する残デッキ閾値。1位の実測（発動中央値=残13枚）より
 # 少し早め＝掘り切る前に確実に戻せる余裕を持たせる。
 _RECYCLE_AT = 15
+# KO 脅威推定（§48）の定数: 弱点一致の打点倍率（ゲームルール）・
+# エネ1不足（次の1付与で打てる＝育成中）の割引・ベンチ攻撃役（昇格が要る）の割引
+_WEAKNESS_MULT = 2
+_THREAT_NEXT_TURN = 0.5
+_THREAT_BENCH = 0.5
 
 
 def random_agent(obs: Observation, rng: random.Random) -> list[int]:
@@ -268,6 +273,52 @@ def find_forced_recycle(
     if (me.deckCount or 0) > limit:
         return None
     return recycle[0]
+
+
+def ko_threat(attacker, defender, meta: CardMeta) -> float:
+    """攻め側の場から受け側アクティブへの KO 脅威度を 0〜1 で返す（§48）.
+
+    流れ: 1. 受け側アクティブの残 HP を取る → 2. 攻め側の場の各ポケモン×各ワザで
+    有効打点（弱点一致で×2）が残 HP に届くものを脅威候補に → 3. エネ充足度で重み付け
+    （不足0=今打てる 1.0 / 不足1=次の1付与で打てる「育成中」0.5 / 不足2以上=0）、
+    ベンチの攻撃役は昇格が要るのでさらに×0.5 → 4. 全候補の最大値を返す。
+    近似: 色拘束・ワザ効果・どうぐ補正は見ない（枚数のみ）。正確な合法性・効果は
+    エンジンのシミュレーションが担保する＝これは value/heuristic への事前信号。
+
+    attacker/defender は PlayerState（テストではフェイク可）。
+    """
+    tgt = (defender.active or [None])[0] if defender is not None else None
+    if attacker is None or tgt is None:
+        return 0.0
+    tgt_hp = tgt.hp or 0
+    if tgt_hp <= 0:
+        return 0.0
+    weak = meta.weakness.get(tgt.id, -1)
+
+    threat = 0.0
+    candidates = [((attacker.active or [None])[0], 1.0)] + [
+        (p, _THREAT_BENCH) for p in (attacker.bench or [])
+    ]
+    for pk, base_w in candidates:
+        if pk is None or base_w <= threat:  # これ以上更新できない候補は飛ばす
+            continue
+        n_energy = len(pk.energies or [])
+        mult = (
+            _WEAKNESS_MULT
+            if weak != -1 and weak == meta.pokemon_type.get(pk.id, -1)
+            else 1
+        )
+        for aid in meta.card_attacks.get(pk.id, []):
+            if meta.attack_damage(aid) * mult < tgt_hp:
+                continue  # 届かないワザは脅威でない
+            shortfall = meta.attack_cost.get(aid, 1) - n_energy
+            w = (
+                1.0
+                if shortfall <= 0
+                else (_THREAT_NEXT_TURN if shortfall == 1 else 0.0)
+            )
+            threat = max(threat, base_w * w)
+    return threat
 
 
 def _argmax_damage(opts, meta: CardMeta) -> int:

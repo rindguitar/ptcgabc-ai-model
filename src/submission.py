@@ -149,6 +149,12 @@ def make_kaggle_agent(
             from nn_eval import wrap_board_bonus
 
             evaluator = wrap_board_bonus(evaluator, board_bonus)
+        # KO 脅威の対称差注入（§48・エネ充足度で重み付けした受け/詰めの事前信号）
+        threat_bonus = policy_kwargs.pop("threat_bonus", 0.0)
+        if threat_bonus:
+            from nn_eval import wrap_threat_bonus
+
+            evaluator = wrap_threat_bonus(evaluator, meta, threat_bonus)
         inner_nn = make_nn_mcts_agent(
             meta,
             deck,

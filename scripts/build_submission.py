@@ -81,7 +81,7 @@ _AGENT_CALLS = {
     # ＋盤面補正（board-blind な value への注入・α=0.2 実測 +0.075）。
     "nn": '"nn", deck_path="deck.csv", opp_pool_dir="opp_decks", game_budget=540.0,\n'
     '    net_path="pvnet.pt", floor_rollouts={floor_rollouts}, board_bonus={board_bonus},\n'
-    "    leaf_rollouts={leaf_rollouts}",
+    "    leaf_rollouts={leaf_rollouts}, threat_bonus={threat_bonus}",
 }
 
 
@@ -95,6 +95,7 @@ def build(
     leaf_rollouts: int = 0,
     recycle_at: int | None = None,
     fetch_priors: str | None = None,
+    threat_bonus: float = 0.0,
 ) -> tuple[str, list[str]]:
     """提出パッケージを組み立てて (tar パス, 同梱物一覧) を返す."""
     build_dir = os.path.join(ROOT, "models", "submission")
@@ -106,6 +107,7 @@ def build(
         floor_rollouts=floor_rollouts,
         board_bonus=board_bonus,
         leaf_rollouts=leaf_rollouts,
+        threat_bonus=threat_bonus,
     )
     if policy == "nn" and recycle_at is not None:
         # リサイクル強制手（§43）の発動閾値の上書き（未指定は agents._RECYCLE_AT）。
@@ -213,6 +215,12 @@ def main() -> None:
         default=None,
         help="山札サーチ優先度 JSON（§47・mine_fetch_priorities.py の出力）を同梱する",
     )
+    parser.add_argument(
+        "--threat-bonus",
+        type=float,
+        default=0.0,
+        help="value への KO 脅威注入 α（§48・nn のみ・0 で無効・α は eval で実測して決める）",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.deck):
@@ -232,6 +240,7 @@ def main() -> None:
         leaf_rollouts=args.leaf_rollouts,
         recycle_at=args.recycle_at,
         fetch_priors=args.fetch_priors,
+        threat_bonus=args.threat_bonus,
     )
     size_mb = os.path.getsize(out_tar) / 1e6
     print(f"提出パッケージを作成: {out_tar} ({size_mb:.1f} MB・policy={args.policy})")
