@@ -893,6 +893,22 @@
   として温存される。破棄したい場合は明示的に `--include-own`。`tests/test_prune.py` を新挙動に
   更新（デフォルトで others 温存／`--include-own` で consumed 分のみ破棄）。
 
+## 55. fetch_priors（§47）初回マイニング — 提出デッキ一致教師が2チーム出現（2026-07-21）
+- **追加 DL 分（others/ 241 episode・新チーム）を `mine_fetch_priorities.py` で初回マイニング**
+  （state.json は今回新規作成・482席＝241episode×2席を新規集計）。78 team×deck 組を出力。
+- **提出デッキ（65c6b47e）に完全一致する教師が2チーム見つかった**:
+  - TeamJ（3 episode・11局面）: id344 取得率0.67（8/12）・id18 0.43（3/7）・
+    id11/id14 は0（提示8/7回だが取得0）。id345 は提示4回で min-offered=5 未満のため priors 対象外。
+  - TeamK（1 episode・5局面）: id345 取得率0.50（3/6）。id344 は提示2回で対象外。
+  - 2チームは相補的（片方が薄い札をもう片方が補う形）だが、`mine_fetch_priorities.py` は
+    team×deck 単位で別ファイル出力＝**チーム間の合算機能はまだ無い**（設計は「デッキが近ければ
+    別デッキ由来でも部分採用可」という単一ファイル選択が前提）。
+  - 依然として各チーム単体では局面数が薄い（§47 の「まだ少ない」は継続）。次提出で使うなら
+    TeamJ側（episode数・局面数とも優位）を採用候補とする。
+- **次の一手**: 次提出（§48 決着後）で `build_submission.py --fetch-priors
+  data/fetch_priors/___________65c6b47e.json` を試すか、他デッキ由来を含めた部分採用も検討。
+  さらに others/ の追加 DL で 65c6b47e 一致教師を厚くできれば理想。
+
 ## 現在地と次の判断（2026-07-07）
 - **提出（Kaggle・3枠並走中）**: ①ISMCTS ②floored NN＋盤面補正α0.2（エネ33チャンピオン）
   ③同（実メタ構成の repaired デッキ）。実戦成績: nn 0.464 > ismcts 0.395、nn_repaired は初期 n=18 で

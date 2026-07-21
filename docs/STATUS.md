@@ -48,6 +48,12 @@
   **再発防止済み**: `prune_replays.py` の既定 `--keep-variants` に `others` を追加
   （自チーム試合を others/ に置くことはない前提のため独立ライフサイクルで温存・
   破棄したい場合のみ `--include-own`）。今後は replays-daily を回しても others/ は消えない。
+- **§55 fetch_priors 初回マイニング**: 追加 DL 分（others/ 241 episode・新チーム）を
+  `mine_fetch_priorities.py` で初回マイニング（state.json 新規作成・78 team×deck 組）。
+  **提出デッキ（65c6b47e）完全一致の教師が2チーム出現**: TeamJ（3ep・
+  id344=0.67/id18=0.43）・TeamK（1ep・id345=0.50）。単体ではまだ薄いが前進。
+  次提出ではTeamJ側
+  （`data/fetch_priors/___________65c6b47e.json`）を採用候補とする（詳細 decisions.md §55）。
 
 ## 2026-07-20
 - **champion-gate（新プール＝9e3ece3f 入り）**: new 最悪0.250/平均0.458 < best 最悪0.375/平均0.641
@@ -103,26 +109,24 @@
 2. **1日目 replay 分析完了（§54）**: 65c6b47e 限定で ismcts 0.491・nn 0.531（拮抗・n少）。
    **（ユーザー）** `make replays-daily`（2日目以降）を継続し、両枠のレート差＋9e3ece3f
    遭遇時の実戦勝率（現在 nn 0/4）のサンプルを積み増して評価する。
-3. **フェッチ優先度（§47・cardId 単位）**: バグ修正済み（§49）だが、**§54 の prune 事故で
-   others/（旧58 episode）が cardId 単位マイニング未実行のまま削除された**（再発防止は
-   済み・§54）。再開には others/ の再 DL が必要（ユーザー・Kaggle リーダーボードから）。
-   再 DL 後は `python scripts/mine_fetch_priorities.py`（--team 省略で全チーム一括・
-   既定 others/）でマイニング（others/ は今後 prune で自動削除されない）。
+3. **フェッチ優先度（§47・cardId 単位）— §55 で前進**: 追加 DL 分（others/ 241 episode・
+   新チーム）を `mine_fetch_priorities.py` で初回マイニング。**提出デッキ（65c6b47e）完全
+   一致の教師が2チーム出現**（TeamJ 3ep・TeamK 1ep）。単体ではまだ薄い。
+   次提出では `build_submission.py --fetch-priors
+   data/fetch_priors/___________65c6b47e.json`（TeamJ）を採用候補とする。
    `_generic_select` の固定順（§52）とは独立の別レイヤ（tier0）として機能済み。
-4. **KO 脅威注入（§48）も実装完了**（同ブランチ・テスト済み）。**§53 α=0 対照が完了**:
-   最悪0.225/平均0.399（α=0.1 の最悪0.150/平均0.386 を同条件で上回る＝α=0.1 は悪化）。
-   残り（ユーザー・Docker）: α=0.2/0.3 も同一手順でスイープし単調性を確認。
-   `make eval-net EVAL_NET=models/pvnet_operative.pt EVAL_GAMES=40 EVAL_ARGS="--floor-rollouts 8 --threat-bonus <α>"`
-   **ユーザー指摘**: 単発レバーのα単独スイープだけで採否を断定しない。§49/§52 等が既に
-   積んである状態での対照であることを踏まえ、fetch_priors（§47）が揃った段階で
-   「蓄積した変更の合成構成」も別途評価する（§53）。良ければ提出構成へ
-   （`build_submission.py --threat-bonus <α>`）。
-5. **§52 の効果検証**: `_generic_select` のたね優先撤回（エネ>その他）が実戦のデッキ切れ率・
+4. **KO 脅威注入（§48）**: **（ユーザー実行中）** α=0.3 を試す予定。α=0（最悪0.225/平均0.399）・
+   α=0.1（最悪0.150/平均0.386＝悪化）と同一プロトコルで比較し、α=0.3 も悪化すれば
+   threat_bonus は打ち切り方向で見る（ユーザー方針）。
+   `make eval-net EVAL_NET=models/pvnet_operative.pt EVAL_GAMES=40 EVAL_ARGS="--floor-rollouts 8 --threat-bonus 0.3"`
+5. **次提出（ユーザー方針・3.と4.完了後）**: §47（fetch_priors 採用可否）・§48（threat_bonus
+   採否）が固まり次第、`build_submission.py` に反映して次提出をビルドする。
+6. **§52 の効果検証**: `_generic_select` のたね優先撤回（エネ>その他）が実戦のデッキ切れ率・
    ベンチ切れ率（§31 の当初の狙い）にどう効くか、次の a/b や次回提出で確認する。
    根拠が TO_HAND 型混在局面（局面数136）に偏っているため一般化は未検証。
-6. gate の判定基準に頻度加重平均の併記を検討（最悪ケース基準は出現0.9%の天敵に引きずられ
+7. gate の判定基準に頻度加重平均の併記を検討（最悪ケース基準は出現0.9%の天敵に引きずられ
    遅滞系を不当に棄却する・要議論）。
-7. replay 運用は `make replays-daily` に統一（消費済み自動破棄・自分の試合と A/B 派生 dir は
+8. replay 運用は `make replays-daily` に統一（消費済み自動破棄・自分の試合と A/B 派生 dir は
    前方一致で温存）。プール刷新は `make gauntlet-real`（ratchet 並行可・gate/eval の起動前に）。
 
 ## 未解決・保留中の問題
