@@ -37,6 +37,15 @@
   0.225/平均0.399。α=0.1（最悪0.150/平均0.386）を同条件で上回る＝α=0.1 は悪化と判明。
   ユーザー指摘により、単発レバーの α 単独スイープだけで採否を断定せず、fetch_priors
   （§47）が揃った段階で蓄積変更の合成構成も別途評価する方針に。
+- **§54 現提出物（65c6b47e）1日目の replay 分析**: variant フォルダ名（ismcts/nn）は
+  旧旗艦との混在に注意が必要と判明（raw JSON からデッキ hash 再計算で分離）。
+  65c6b47e 限定で ismcts 28/57（0.491）・nn 26/49（0.531）＝ほぼ拮抗（n少で有意差なし）。
+  デッキ切れは両枠とも低水準。天敵 9e3ece3f は nn 0/4・ismcts 遭遇なし（n=4で要継続監視）。
+  `make gauntlet-real` で判定プールを実メタ544デッキから再選抜（カバー2370/3374）。
+  **注意**: `make replays-daily` の prune が `others/`（§47 cardId 単位マイニングの教師
+  プール・58 episode）を、cardId 単位マイニング未実行のまま削除（prune の必須消費者に
+  `mine_fetch_priorities` が含まれていないため）。§47 をさらに進めるには others/ の再 DL
+  が必要（詳細 decisions.md §54）。
 
 ## 2026-07-20
 - **champion-gate（新プール＝9e3ece3f 入り）**: new 最悪0.250/平均0.458 < best 最悪0.375/平均0.641
@@ -89,12 +98,14 @@
    - 枠2（旧 v3.5）→ `models/submission_stall_v1.tar.gz`（65c6b47e×nn+floor8+board0.2）
    狙い: 天敵 9e3ece3f への 0.65(nn)/0.85(ismcts) の決着＋「型が決め、操縦は実行度」の検証。
    alphago 系は両枠退役（閾値 A/B は効果小のため打ち切り）。
-2. **（ユーザー）** `make replays-daily`（2日目）→ 翌日以降、両枠のレート差＋9e3ece3f 遭遇時の
-   実戦勝率を確認。
-3. **フェッチ優先度（§47・cardId 単位）**: バグ修正済み（§49）だが、提出デッキ
-   （65c6b47e）に完全一致する信頼できる教師がまだ少ない（others/ 58 episode 中）。
-   `python scripts/mine_fetch_priorities.py`（--team 省略で全チーム一括・既定 others/）で
-   都度マイニングしつつ、others/ の追加 DL で厚みを待つ。
+2. **1日目 replay 分析完了（§54）**: 65c6b47e 限定で ismcts 0.491・nn 0.531（拮抗・n少）。
+   **（ユーザー）** `make replays-daily`（2日目以降）を継続し、両枠のレート差＋9e3ece3f
+   遭遇時の実戦勝率（現在 nn 0/4）のサンプルを積み増して評価する。
+3. **フェッチ優先度（§47・cardId 単位）**: バグ修正済み（§49）だが、**§54 の prune で
+   others/（旧58 episode）が cardId 単位マイニング未実行のまま削除された**。再開には
+   others/ の再 DL が必要（ユーザー・Kaggle リーダーボードから）。再 DL 後は
+   `python scripts/mine_fetch_priorities.py`（--team 省略で全チーム一括・既定 others/）を
+   **replays-daily の prune より前に**実行すること（prune の必須消費者に未追跡のため）。
    `_generic_select` の固定順（§52）とは独立の別レイヤ（tier0）として機能済み。
 4. **KO 脅威注入（§48）も実装完了**（同ブランチ・テスト済み）。**§53 α=0 対照が完了**:
    最悪0.225/平均0.399（α=0.1 の最悪0.150/平均0.386 を同条件で上回る＝α=0.1 は悪化）。
@@ -117,13 +128,20 @@
   現時点の読み: 閾値差の実戦効果は小（発火機会が~25%の試合にしかない）。
 - クローンの floor 抑圧疑い（floor0=0.681 > floor8=0.588）——v4/v3.5 は floor0 採用済み。
 - nn 学習は凍結中（§44 で実測根拠付き）。解除条件は「ISMCTS 実行を超える具体仮説」。
-  value_samples は 199,794 まで蓄積済み（replay-tune は closed・他用途は自由）。
+  value_samples は 220,920 まで蓄積済み（replay-tune は closed・他用途は自由）。
+- §47 cardId 単位フェッチ優先度の教師プール（others/）が §54 の prune で消失。再開には
+  再 DL が必要（下記参照）。
 
 ## 直近の決定事項
 - 2026-07-21: cardId 誤読バグ修正（§49）＋教師プールを others/ 限定に是正（自チーム対戦
   ログを教師扱いしていた誤りをユーザー指摘で発見）。役割別優先度マイニング新設（§50/§51）で
   「たね優先」が上位帯実測（lift=0.46）で否定されたため `_generic_select` を修正（§52・
   エネ>その他のみに）。効果検証は次の a/b・提出で。
+- 2026-07-21（同日・続き）: threat_bonus α=0 対照実測（§53・α=0.1 は悪化と判明）。
+  現提出物（65c6b47e）1日目 replay 分析（§54）: ismcts 0.491・nn 0.531 で拮抗、
+  gauntlet-real で判定プール実メタ同期。**replays-daily の prune が others/（§47 教師
+  プール・58 episode）を cardId 単位マイニング未実行のまま削除**（prune の必須消費者に
+  mine_fetch_priorities が未追跡だったため）＝再 DL 待ち。
 - 2026-07-20: 新プール gate は据え置き（new 0.458 < best 0.641）。天敵チェック合格
   （65c6×nn 構成 0.65 vs 9e3ece3f）→ submission_stall_v1 ビルド完了。
   **両枠を遅滞デッキへ差し替え決定（ユーザー）**: 枠1=ISMCTS 操縦・枠2=nn 測定構成の
