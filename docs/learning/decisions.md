@@ -927,6 +927,16 @@
   差し替え。ismcts 枠は `models/submission_stall_ismcts_v2.tar.gz`（fetch_priors のみ同梱・
   TeamJ分）で別途検証（§47・§55）。1日経過後に §54 と同じ手法（自チームデッキ
   hash 再計算で variant 混在を回避）で再分析し、実戦での threat_bonus 効果を判断する。
+- **構造的な原因の特定**: `src/evaluation.py::eval_deck_vs_meta`（eval-net/gate/ratchet 共通の
+  判定基盤）は相手側デッキも**自分と同じ pilot（同じ評価関数・同じ threat_bonus 等）で操縦**
+  している＝ローカル判定は「自分の現行実装どうしのミラー戦（デッキだけ違う）」であり、
+  実際の他チーム Bot（挙動が全く異なる）との対戦を測っていない。相手の意図を読む機能
+  （threat_bonus 等）ほどこの歪みの影響を受けやすいと考えられる。
+- **保留中の論点（ユーザー）**: eval-net 的なローカルスコア判定を「動作確認のみ」に格下げし
+  実戦データ駆動に一本化するかどうか。範囲は①nn ハイパラ（board_bonus/threat_bonus/floor-
+  rollouts 等）のみか、②gate/ratchet（デッキ探索の採否判定）まで含めるか。**現時点では判断
+  を保留**（ユーザー: 「まだ早い」）。今回の提出（v2・threat_bonus α=0.1）の1日経過後、
+  実戦 replay データと合わせて再検討する。
 
 ## 現在地と次の判断（2026-07-07）
 - **提出（Kaggle・3枠並走中）**: ①ISMCTS ②floored NN＋盤面補正α0.2（エネ33チャンピオン）
