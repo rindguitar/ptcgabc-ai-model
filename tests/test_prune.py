@@ -60,13 +60,13 @@ def test_dry_run_deletes_nothing(tmp_path):
     assert _exists(tmp_path, "others", "D.json")
 
 
-def test_apply_prunes_consumed_others_only(tmp_path):
+def test_apply_prunes_nothing_in_keep_variants(tmp_path):
     _build(tmp_path)
     _run(tmp_path, ["--apply"])
-    # A,B は analyze＋value 両方済 → 破棄
-    assert not _exists(tmp_path, "others", "A.json")
-    assert not _exists(tmp_path, "others", "B.json")
-    # D は value 未消費 → 温存
+    # others は既定 keep-variants（§47 教師プール・cardId マイニング未追跡のため独立ライフサイクル）
+    # → analyze＋value 両方済でも温存
+    assert _exists(tmp_path, "others", "A.json")
+    assert _exists(tmp_path, "others", "B.json")
     assert _exists(tmp_path, "others", "D.json")
     # C は自分の試合（keep-variants の ismcts）→ 温存
     assert _exists(tmp_path, "ismcts", "C.json")
@@ -74,16 +74,21 @@ def test_apply_prunes_consumed_others_only(tmp_path):
     assert _exists(tmp_path, "alphago_v4", "E.json")
 
 
-def test_include_own_also_prunes_own_matches(tmp_path):
+def test_include_own_prunes_consumed_keep_variants(tmp_path):
     _build(tmp_path)
     _run(tmp_path, ["--apply", "--include-own"])
     assert not _exists(tmp_path, "ismcts", "C.json")  # 自分の試合も破棄
     assert not _exists(tmp_path, "alphago_v4", "E.json")  # 派生も含めて破棄
+    # others も破棄対象に含まれる（consumed 分のみ）
+    assert not _exists(tmp_path, "others", "A.json")
+    assert not _exists(tmp_path, "others", "B.json")
+    assert _exists(tmp_path, "others", "D.json")  # value 未消費 → 温存
 
 
 def test_consumers_analyze_only_prunes_pending_value(tmp_path):
     _build(tmp_path)
-    _run(tmp_path, ["--apply", "--consumers", "analyze"])
+    # others は既定 keep-variants なので --include-own で外して consumers 判定のみ検証
+    _run(tmp_path, ["--apply", "--include-own", "--consumers", "analyze"])
     # analyze のみ必須 → D も破棄される（value 未消費でも）
     assert not _exists(tmp_path, "others", "D.json")
 

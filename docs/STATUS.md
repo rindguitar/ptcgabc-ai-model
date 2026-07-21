@@ -42,10 +42,12 @@
   65c6b47e 限定で ismcts 28/57（0.491）・nn 26/49（0.531）＝ほぼ拮抗（n少で有意差なし）。
   デッキ切れは両枠とも低水準。天敵 9e3ece3f は nn 0/4・ismcts 遭遇なし（n=4で要継続監視）。
   `make gauntlet-real` で判定プールを実メタ544デッキから再選抜（カバー2370/3374）。
-  **注意**: `make replays-daily` の prune が `others/`（§47 cardId 単位マイニングの教師
-  プール・58 episode）を、cardId 単位マイニング未実行のまま削除（prune の必須消費者に
-  `mine_fetch_priorities` が含まれていないため）。§47 をさらに進めるには others/ の再 DL
-  が必要（詳細 decisions.md §54）。
+  **事故**: `make replays-daily` の prune が `others/`（§47 cardId 単位マイニングの教師
+  プール・58 episode）を、cardId 単位マイニング未実行のまま削除した（詳細 decisions.md §54）。
+  §47 をさらに進めるには others/ の再 DL が必要。
+  **再発防止済み**: `prune_replays.py` の既定 `--keep-variants` に `others` を追加
+  （自チーム試合を others/ に置くことはない前提のため独立ライフサイクルで温存・
+  破棄したい場合のみ `--include-own`）。今後は replays-daily を回しても others/ は消えない。
 
 ## 2026-07-20
 - **champion-gate（新プール＝9e3ece3f 入り）**: new 最悪0.250/平均0.458 < best 最悪0.375/平均0.641
@@ -101,11 +103,11 @@
 2. **1日目 replay 分析完了（§54）**: 65c6b47e 限定で ismcts 0.491・nn 0.531（拮抗・n少）。
    **（ユーザー）** `make replays-daily`（2日目以降）を継続し、両枠のレート差＋9e3ece3f
    遭遇時の実戦勝率（現在 nn 0/4）のサンプルを積み増して評価する。
-3. **フェッチ優先度（§47・cardId 単位）**: バグ修正済み（§49）だが、**§54 の prune で
-   others/（旧58 episode）が cardId 単位マイニング未実行のまま削除された**。再開には
-   others/ の再 DL が必要（ユーザー・Kaggle リーダーボードから）。再 DL 後は
-   `python scripts/mine_fetch_priorities.py`（--team 省略で全チーム一括・既定 others/）を
-   **replays-daily の prune より前に**実行すること（prune の必須消費者に未追跡のため）。
+3. **フェッチ優先度（§47・cardId 単位）**: バグ修正済み（§49）だが、**§54 の prune 事故で
+   others/（旧58 episode）が cardId 単位マイニング未実行のまま削除された**（再発防止は
+   済み・§54）。再開には others/ の再 DL が必要（ユーザー・Kaggle リーダーボードから）。
+   再 DL 後は `python scripts/mine_fetch_priorities.py`（--team 省略で全チーム一括・
+   既定 others/）でマイニング（others/ は今後 prune で自動削除されない）。
    `_generic_select` の固定順（§52）とは独立の別レイヤ（tier0）として機能済み。
 4. **KO 脅威注入（§48）も実装完了**（同ブランチ・テスト済み）。**§53 α=0 対照が完了**:
    最悪0.225/平均0.399（α=0.1 の最悪0.150/平均0.386 を同条件で上回る＝α=0.1 は悪化）。
@@ -140,8 +142,8 @@
 - 2026-07-21（同日・続き）: threat_bonus α=0 対照実測（§53・α=0.1 は悪化と判明）。
   現提出物（65c6b47e）1日目 replay 分析（§54）: ismcts 0.491・nn 0.531 で拮抗、
   gauntlet-real で判定プール実メタ同期。**replays-daily の prune が others/（§47 教師
-  プール・58 episode）を cardId 単位マイニング未実行のまま削除**（prune の必須消費者に
-  mine_fetch_priorities が未追跡だったため）＝再 DL 待ち。
+  プール・58 episode）を cardId 単位マイニング未実行のまま削除**（事故）＝再 DL 待ち。
+  ユーザー指摘で `prune_replays.py` の既定 keep-variants に others を追加（再発防止済み）。
 - 2026-07-20: 新プール gate は据え置き（new 0.458 < best 0.641）。天敵チェック合格
   （65c6×nn 構成 0.65 vs 9e3ece3f）→ submission_stall_v1 ビルド完了。
   **両枠を遅滞デッキへ差し替え決定（ユーザー）**: 枠1=ISMCTS 操縦・枠2=nn 測定構成の

@@ -887,9 +887,11 @@
   role_priors.json`）は削除前にマイニング済み・永続化済みで無事だが、**§47 の cardId 単位
   マイニングはこの58 episode に対して一度も実行されないまま失われた**。§47 をさらに
   進めるには others/ の再 DL が必要（ユーザー・Kaggle リーダーボードから）。
-  再発防止の候補: `prune_replays.py` の必須消費者リストに `fetch_priors`（mine_fetch_priorities
-  の実行痕跡）を追加するか、`others/` は `analyze`/`value` の消費対象から外し独立ライフサイクル
-  にする（次回検討）。
+- **再発防止（実施済み・同日）**: `prune_replays.py` の既定 `--keep-variants` に `others` を追加
+  （`alphago,ismcts,nn` → `alphago,ismcts,nn,others`）。自チームの試合を `others/` に置くことは
+  ない前提（ユーザー確認）のため、`analyze`/`value` の消費だけでは破棄されず独立ライフサイクル
+  として温存される。破棄したい場合は明示的に `--include-own`。`tests/test_prune.py` を新挙動に
+  更新（デフォルトで others 温存／`--include-own` で consumed 分のみ破棄）。
 
 ## 現在地と次の判断（2026-07-07）
 - **提出（Kaggle・3枠並走中）**: ①ISMCTS ②floored NN＋盤面補正α0.2（エネ33チャンピオン）

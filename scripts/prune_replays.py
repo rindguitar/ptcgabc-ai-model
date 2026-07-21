@@ -11,8 +11,12 @@
      必要な全集合に含まれるかを判定
   3. --apply 指定時のみ削除（既定は dry-run で削減量を表示するだけ）
 
-自分の試合（keep-variants）は behavior_diff / scout_field が状態を残さず随時再読み込みするため、
-既定では破棄対象から除外して温存する（--include-own で明示的に含める）。
+keep-variants は既定で破棄対象から除外し温存する（--include-own で明示的に含める）。理由は2つ:
+  - 自分の試合（alphago/ismcts/nn 等）: behavior_diff / scout_field が状態を残さず随時再読み込み
+  - others/: 上位帯から意図的に DL した教師プール。analyze/value は消費者として通過するが、
+    mine_fetch_priorities（§47・cardId 単位マイニング）は消費者として未追跡＝
+    analyze/value 完了だけで破棄すると cardId マイニング前に消えてしまう（§54 の事故）。
+    自チームの試合を others/ に置くことはない前提のため、独立ライフサイクルとして温存する。
 
 出力は数値・ID・variant 名のみ（カード名・効果文＝Pokémon Elements は扱わない）。ホストで実行可:
     python scripts/prune_replays.py            # dry-run（何が消えるか確認）
@@ -61,14 +65,15 @@ def main() -> None:
     )
     p.add_argument(
         "--keep-variants",
-        default="alphago,ismcts,nn",
-        help="温存する variant（behavior 分析が再読み込みする自分の試合）。"
+        default="alphago,ismcts,nn,others",
+        help="温存する variant（自分の試合＝behavior 分析が再読み込み／others＝§47 教師プール・"
+        "cardId マイニング未追跡のため独立ライフサイクル）。"
         "**前方一致**: alphago は alphago_v4 / alphago_v35 等の派生ディレクトリも温存する",
     )
     p.add_argument(
         "--include-own",
         action="store_true",
-        help="keep-variants も破棄対象に含める（behavior 分析を諦める場合）",
+        help="keep-variants も破棄対象に含める（behavior 分析や§47教師プールを諦める場合）",
     )
     p.add_argument("--apply", action="store_true", help="実削除する（既定は dry-run）")
     args = p.parse_args()
@@ -92,7 +97,7 @@ def main() -> None:
     # 2. ディスク上の JSON を走査し、破棄可否を variant 別に集計する
     paths = sorted(glob.glob(os.path.join(args.dir, "**", "*.json"), recursive=True))
     to_delete: list[tuple[str, int]] = []  # (path, size)
-    kept_own = n_pending = 0
+    kept = n_pending = 0
     for pth in paths:
         variant = os.path.basename(os.path.dirname(pth))
         eid = os.path.splitext(os.path.basename(pth))[0]  # ファイル名 stem = EpisodeId
@@ -100,7 +105,7 @@ def main() -> None:
         # keep-variants に列挙し忘れて scout 前に消してしまう事故を防ぐ
         keep = any(variant.startswith(k) for k in keep_variants)
         if not args.include_own and keep:
-            kept_own += 1
+            kept += 1
             continue
         if eid in required:
             to_delete.append((pth, os.path.getsize(pth)))
@@ -117,7 +122,7 @@ def main() -> None:
 
     print(
         f"JSON {len(paths)} 件 / 必須消費者 {sorted(wanted)} を通過済み {len(required)} episode\n"
-        f"温存（自分の試合 {sorted(keep_variants)}）: {kept_own} 件 / "
+        f"温存（keep-variants {sorted(keep_variants)}）: {kept} 件 / "
         f"未消費で保留: {n_pending} 件\n"
     )
     for v in sorted(by_var):
