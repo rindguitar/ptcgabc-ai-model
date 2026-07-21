@@ -3,12 +3,15 @@
 最終更新: 2026-07-21（セッション終了時に必ず更新）
 
 ## 現在のフェーズ
-**レート平衡の打開＝デッキ交換の検証**（§41「型が決め、操縦は実行度」路線）:
-- 枠1: **alphago v4×a4066acd**（§43 リサイクル強制手・閾値15）レート 702（最低505-最高891）
-- 枠2: **alphago v3.5×a4066acd**（同・閾値25）レート 663（最低558-最高775）
-- 旗艦 ismcts×a8c57d4b は退役済み（v4/v3.5 並走のため・ユーザー決定）。
-- レートは1日で平衡に達する＝同じ提出物での追加データ収集は非生産的（ユーザー指摘）。
-  平衡打開の主レバーは**デッキ交換（65c6b47e 遅滞）**。枠の選択はユーザー決定待ち。
+**65c6b47e（遅滞デッキ）両枠運用＋操縦側レバーのローカル/実戦乖離を実戦A/Bで確認**（§41/§54/§56）:
+- 枠1（ismcts）: 現行 `submission_stall_ismcts_v1.tar.gz` → **`_v2` へ更新予定**
+  （fetch_priors 同梱・TeamJ分・§47/§55）。
+- 枠2（nn）: 現行 `submission_stall_v1.tar.gz` → **`_v2` へ更新予定**
+  （threat_bonus α=0.1・fetch_priors は分離して非同梱・§48/§56）。
+- **§56 の方針転換**: ローカル判定（16デッキ gauntlet）と実戦のスコアが乖離して見える
+  （§54: ローカルは operative≫ISMCTS のはずが実戦は拮抗）ため、threat_bonus の採否は
+  ローカル a/b だけで決めず**実戦1日分のデータで判断**する。v2 提出後、1日経過を待って
+  §54 と同じ手法（自チームデッキ hash 再計算）で再分析。
 
 ## 前回やったこと（2026-07-21・feature/fetch-priority ブランチ）
 - **§49 cardId 誤読バグを修正**: 山札サーチの `option` は cardId を持たず、実カードは
@@ -109,18 +112,20 @@
 2. **1日目 replay 分析完了（§54）**: 65c6b47e 限定で ismcts 0.491・nn 0.531（拮抗・n少）。
    **（ユーザー）** `make replays-daily`（2日目以降）を継続し、両枠のレート差＋9e3ece3f
    遭遇時の実戦勝率（現在 nn 0/4）のサンプルを積み増して評価する。
-3. **フェッチ優先度（§47・cardId 単位）— §55 で前進**: 追加 DL 分（others/ 241 episode・
-   新チーム）を `mine_fetch_priorities.py` で初回マイニング。**提出デッキ（65c6b47e）完全
-   一致の教師が2チーム出現**（TeamJ 3ep・TeamK 1ep）。単体ではまだ薄い。
-   次提出では `build_submission.py --fetch-priors
-   data/fetch_priors/___________65c6b47e.json`（TeamJ）を採用候補とする。
+3. **フェッチ優先度（§47・cardId 単位）— §55 でビルド済み**: TeamJ分
+   （3ep・65c6b47e完全一致）を `models/submission_stall_ismcts_v2.tar.gz`（ismcts枠）に同梱。
    `_generic_select` の固定順（§52）とは独立の別レイヤ（tier0）として機能済み。
-4. **KO 脅威注入（§48）**: **（ユーザー実行中）** α=0.3 を試す予定。α=0（最悪0.225/平均0.399）・
-   α=0.1（最悪0.150/平均0.386＝悪化）と同一プロトコルで比較し、α=0.3 も悪化すれば
-   threat_bonus は打ち切り方向で見る（ユーザー方針）。
-   `make eval-net EVAL_NET=models/pvnet_operative.pt EVAL_GAMES=40 EVAL_ARGS="--floor-rollouts 8 --threat-bonus 0.3"`
-5. **次提出（ユーザー方針・3.と4.完了後）**: §47（fetch_priors 採用可否）・§48（threat_bonus
-   採否）が固まり次第、`build_submission.py` に反映して次提出をビルドする。
+4. **KO 脅威注入（§48）— ローカル/実戦の乖離を受けて実戦A/Bへ（§56）**: ローカルでは
+   α=0（最悪0.225/平均0.399）> α=0.3（0.200/0.389）> α=0.1（0.150/0.386）と非ゼロαが
+   全て悪化して見えたが、§54 でローカル判定と実戦成績の乖離（operative≫ISMCTS のはずが
+   実戦拮抗）が確認されているため、**ローカルだけで不採用と断定せず実戦で判断する**方針に
+   転換（ユーザー指摘）。α=0.1 を `models/submission_stall_v2.tar.gz`（nn枠・fetch_priors
+   非同梱で信号分離）としてビルド済み。
+5. **提出物 v2 ビルド済み（アップロードはユーザー）**:
+   - 枠1（ismcts）→ `models/submission_stall_ismcts_v2.tar.gz`（fetch_priors のみ）
+   - 枠2（nn）→ `models/submission_stall_v2.tar.gz`（threat_bonus α=0.1 のみ）
+   1日経過後、§54 と同じ手法（自チームデッキ hash 再計算で variant 混在回避）で再分析し、
+   fetch_priors・threat_bonus それぞれの実戦効果を判断する。
 6. **§52 の効果検証**: `_generic_select` のたね優先撤回（エネ>その他）が実戦のデッキ切れ率・
    ベンチ切れ率（§31 の当初の狙い）にどう効くか、次の a/b や次回提出で確認する。
    根拠が TO_HAND 型混在局面（局面数136）に偏っているため一般化は未検証。
