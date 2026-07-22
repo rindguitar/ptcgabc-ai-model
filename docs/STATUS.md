@@ -1,17 +1,16 @@
 # STATUS
 
-最終更新: 2026-07-21（セッション終了時に必ず更新）
+最終更新: 2026-07-22（セッション終了時に必ず更新）
 
 ## 現在のフェーズ
-**65c6b47e（遅滞デッキ）両枠運用＋操縦側レバーのローカル/実戦乖離を実戦A/Bで確認**（§41/§54/§56）:
-- 枠1（ismcts）: 現行 `submission_stall_ismcts_v1.tar.gz` → **`_v2` へ更新予定**
-  （fetch_priors 同梱・TeamJ分・§47/§55）。
-- 枠2（nn）: 現行 `submission_stall_v1.tar.gz` → **`_v2` へ更新予定**
-  （threat_bonus α=0.1・fetch_priors は分離して非同梱・§48/§56）。
-- **§56 の方針転換**: ローカル判定（16デッキ gauntlet）と実戦のスコアが乖離して見える
-  （§54: ローカルは operative≫ISMCTS のはずが実戦は拮抗）ため、threat_bonus の採否は
-  ローカル a/b だけで決めず**実戦1日分のデータで判断**する。v2 提出後、1日経過を待って
-  §54 と同じ手法（自チームデッキ hash 再計算）で再分析。
+**65c6b47e（遅滞デッキ）両枠運用・v2（fetch_priors×ismcts／threat_bonus×nn）1日経過で決着**（§57）:
+- 枠1（ismcts）: `submission_stall_ismcts_v2.tar.gz`（fetch_priors・TeamJ分）
+  実戦 0.491→**0.567**（ベンチ切れ負け14%→3.3%）＝**継続**。レート692（上限707に接近）。
+- 枠2（nn）: `submission_stall_v2.tar.gz`（threat_bonus α=0.1）実戦 0.531→0.489（改善なし）。
+  **threat_bonus は不採用へ**（α=0 に戻す方向・次提出で反映）。レート556（中位）と整合。
+  threat_bonus は NN の value evaluator ラップ実装のため**ISMCTS には注入不可**（§48 仕様）。
+- §56 で提起した「ローカル判定は実戦の改善を過小評価するか」は今回のthreat_bonusでは
+  不成立（ローカルもα=0.1が最悪＝実戦と一致）。乖離の主論点は §54 の pilot 間比較のまま。
 
 ## 前回やったこと（2026-07-21・feature/fetch-priority ブランチ）
 - **§49 cardId 誤読バグを修正**: 山札サーチの `option` は cardId を持たず、実カードは
@@ -104,35 +103,24 @@
   実メタ33%の a4066acd に 0.82。
 
 ## 次の一手（優先順）
-1. **両枠差し替えの実行（ユーザー・決定済み）**: 同デッキ・操縦違いの実戦 A/B（§41 の直接検証）。
-   - 枠1（旧 v4）→ `models/submission_stall_ismcts_v1.tar.gz`（65c6b47e×ISMCTS 既定構成）
-   - 枠2（旧 v3.5）→ `models/submission_stall_v1.tar.gz`（65c6b47e×nn+floor8+board0.2）
-   狙い: 天敵 9e3ece3f への 0.65(nn)/0.85(ismcts) の決着＋「型が決め、操縦は実行度」の検証。
-   alphago 系は両枠退役（閾値 A/B は効果小のため打ち切り）。
-2. **1日目 replay 分析完了（§54）**: 65c6b47e 限定で ismcts 0.491・nn 0.531（拮抗・n少）。
-   **（ユーザー）** `make replays-daily`（2日目以降）を継続し、両枠のレート差＋9e3ece3f
-   遭遇時の実戦勝率（現在 nn 0/4）のサンプルを積み増して評価する。
-3. **フェッチ優先度（§47・cardId 単位）— §55 でビルド済み**: TeamJ分
-   （3ep・65c6b47e完全一致）を `models/submission_stall_ismcts_v2.tar.gz`（ismcts枠）に同梱。
-   `_generic_select` の固定順（§52）とは独立の別レイヤ（tier0）として機能済み。
-4. **KO 脅威注入（§48）— ローカル/実戦の乖離を受けて実戦A/Bへ（§56）**: ローカルでは
-   α=0（最悪0.225/平均0.399）> α=0.3（0.200/0.389）> α=0.1（0.150/0.386）と非ゼロαが
-   全て悪化して見えたが、§54 でローカル判定と実戦成績の乖離（operative≫ISMCTS のはずが
-   実戦拮抗）が確認されているため、**ローカルだけで不採用と断定せず実戦で判断する**方針に
-   転換（ユーザー指摘）。α=0.1 を `models/submission_stall_v2.tar.gz`（nn枠・fetch_priors
-   非同梱で信号分離）としてビルド済み。
-5. **提出物 v2 ビルド済み（アップロードはユーザー）**:
-   - 枠1（ismcts）→ `models/submission_stall_ismcts_v2.tar.gz`（fetch_priors のみ）
-   - 枠2（nn）→ `models/submission_stall_v2.tar.gz`（threat_bonus α=0.1 のみ）
-   1日経過後、§54 と同じ手法（自チームデッキ hash 再計算で variant 混在回避）で再分析し、
-   fetch_priors・threat_bonus それぞれの実戦効果を判断する。
-6. **§52 の効果検証**: `_generic_select` のたね優先撤回（エネ>その他）が実戦のデッキ切れ率・
-   ベンチ切れ率（§31 の当初の狙い）にどう効くか、次の a/b や次回提出で確認する。
+1. **threat_bonus を α=0 に戻す提出（§57 の決定・未ビルド）**: nn 枠を fetch_priors 無し・
+   threat_bonus 無しの構成に戻すか、この機会に nn 枠にも fetch_priors を試すか要相談。
+   threat_bonus は ISMCTS に注入不可（NN value evaluator ラップのため・§48 仕様）なので
+   ismcts 枠は現状（fetch_priors のみ）を維持でよい。
+2. **fetch_priors（ismcts枠）は継続**: 実戦 0.491→0.567・ベンチ切れ負け14%→3.3%で効果確認
+   （§57）。教師は依然TeamJ3episodeのみ＝others/ の追加 DL で厚くできれば
+   より頑健になる。
+3. **§56 の保留論点（eval-net 的ローカル判定の格下げ）**: 今回の threat_bonus はローカルと
+   実戦が一致したため決定打にならず。乖離の主論点は §54 の pilot 間比較（ローカル
+   operative≫ISMCTS だが実戦拮抗）のまま。次に判断材料が増えたタイミングで再検討。
+4. **§52 の効果検証**: `_generic_select` のたね優先撤回（エネ>その他）が実戦のデッキ切れ率・
+   ベンチ切れ率（§31 の当初の狙い）にどう効くか、継続観測。
    根拠が TO_HAND 型混在局面（局面数136）に偏っているため一般化は未検証。
-7. gate の判定基準に頻度加重平均の併記を検討（最悪ケース基準は出現0.9%の天敵に引きずられ
+5. gate の判定基準に頻度加重平均の併記を検討（最悪ケース基準は出現0.9%の天敵に引きずられ
    遅滞系を不当に棄却する・要議論）。
-8. replay 運用は `make replays-daily` に統一（消費済み自動破棄・自分の試合と A/B 派生 dir は
-   前方一致で温存）。プール刷新は `make gauntlet-real`（ratchet 並行可・gate/eval の起動前に）。
+6. replay 運用は `make replays-daily` に統一（2026-07-22 実行済み・others/ は keep-variants
+   化で自動破棄されなくなった＝データ量は `du -sh data/replays/` で定期確認・現状2.8GB）。
+   プール刷新は `make gauntlet-real`（ratchet 並行可・gate/eval の起動前に）。
 
 ## 未解決・保留中の問題
 - v4/v3.5 の閾値 A/B はレート平衡により早期収束見込み（同一提出物の継続収集はしない方針）。
@@ -144,6 +132,11 @@
   再 DL が必要（下記参照）。
 
 ## 直近の決定事項
+- 2026-07-22: v2提出（fetch_priors×ismcts／threat_bonus α=0.1×nn）の1日経過結果（§57）:
+  ismcts 0.491→0.567（ベンチ切れ負け14%→3.3%）で**fetch_priors継続**。nn 0.531→0.489で
+  **threat_bonus不採用**（次提出で α=0 に戻す）。threat_bonus は ISMCTS 不可（実装仕様）を
+  再確認。今回は実戦がローカル判定と一致し、§56 の「ローカル格下げ」論点は決定打なし。
+  `make replays-daily` 実行済み（others/ は keep-variants 化で自動破棄されなくなった）。
 - 2026-07-21: cardId 誤読バグ修正（§49）＋教師プールを others/ 限定に是正（自チーム対戦
   ログを教師扱いしていた誤りをユーザー指摘で発見）。役割別優先度マイニング新設（§50/§51）で
   「たね優先」が上位帯実測（lift=0.46）で否定されたため `_generic_select` を修正（§52・
