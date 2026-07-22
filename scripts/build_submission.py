@@ -95,6 +95,7 @@ def build(
     leaf_rollouts: int = 0,
     recycle_at: int | None = None,
     fetch_priors: str | None = None,
+    attach_priors: str | None = None,
     threat_bonus: float = 0.0,
 ) -> tuple[str, list[str]]:
     """提出パッケージを組み立てて (tar パス, 同梱物一覧) を返す."""
@@ -137,6 +138,9 @@ def build(
         # 山札サーチ優先度（§47）を固定名で同梱。make_kaggle_agent が既定パス
         # fetch_priors.json を自動で読む（無ければ従来挙動＝main.py の変更は不要）。
         shutil.copy(fetch_priors, os.path.join(build_dir, "fetch_priors.json"))
+    if attach_priors:
+        # エネ付与先の帯実測（mine_attach_policy.py）も同じ機構で同梱・自動読込
+        shutil.copy(attach_priors, os.path.join(build_dir, "attach_priors.json"))
 
     # 相手候補デッキ群（観測整合の相手デッキ推定＝ベイズ事前分布）。中立名で同梱
     # （Pokémon 名を避ける）。実 replay から抽出した相手デッキ（data/replays/opp_decks/）を
@@ -216,6 +220,11 @@ def main() -> None:
         help="山札サーチ優先度 JSON（§47・mine_fetch_priorities.py の出力）を同梱する",
     )
     parser.add_argument(
+        "--attach-priors",
+        default=None,
+        help="エネ付与先 JSON（mine_attach_policy.py の出力）を同梱する",
+    )
+    parser.add_argument(
         "--threat-bonus",
         type=float,
         default=0.0,
@@ -229,6 +238,8 @@ def main() -> None:
         raise SystemExit(f"--policy nn には学習済みネットが必要: --net {args.net}")
     if args.fetch_priors and not os.path.exists(args.fetch_priors):
         raise SystemExit(f"fetch-priors が見つかりません: {args.fetch_priors}")
+    if args.attach_priors and not os.path.exists(args.attach_priors):
+        raise SystemExit(f"attach-priors が見つかりません: {args.attach_priors}")
 
     out_tar, names = build(
         args.deck,
@@ -240,6 +251,7 @@ def main() -> None:
         leaf_rollouts=args.leaf_rollouts,
         recycle_at=args.recycle_at,
         fetch_priors=args.fetch_priors,
+        attach_priors=args.attach_priors,
         threat_bonus=args.threat_bonus,
     )
     size_mb = os.path.getsize(out_tar) / 1e6

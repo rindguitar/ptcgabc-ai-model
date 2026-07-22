@@ -338,6 +338,7 @@ def make_nn_mcts_agent(
     leaf_rollouts: int = 0,
     recycle_at: int | None = None,
     fetch_priors: dict[int, float] | None = None,
+    attach_priors: dict[int, float] | None = None,
 ) -> Agent:
     """NN 誘導 MCTS（PUCT）エージェントを生成する.
 
@@ -354,8 +355,11 @@ def make_nn_mcts_agent(
     実測で NN 提出は 600 秒中 ~550 秒を残しており、推論時間は未使用の計算資源。
     eval/gate は game_budget を渡さない＝従来の固定 sims（測定時間が爆発しない）。
     """
-    # fetch_priors（§47）: 山札サーチの取得優先度。サブ選択即決と rollout の fallback 既定に効く
-    heuristic = make_heuristic_agent(meta, fetch_priors=fetch_priors)
+    # fetch_priors（§47）: 山札サーチの取得優先度。attach_priors: エネ付与先の帯実測。
+    # どちらもサブ選択即決と rollout の fallback 既定に効く
+    heuristic = make_heuristic_agent(
+        meta, fetch_priors=fetch_priors, attach_priors=attach_priors
+    )
     evaluator = evaluator or make_prize_evaluator(meta)
     fallback = fallback or heuristic
     sims_cap = max_simulations or n_simulations * 8

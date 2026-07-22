@@ -324,6 +324,7 @@ def make_ismcts_agent(
     rollout_policy: Agent | None = None,
     opp_pool: list[list[int]] | None = None,
     fetch_priors: dict[int, float] | None = None,
+    attach_priors: dict[int, float] | None = None,
 ) -> Agent:
     """ISMCTS エージェントを生成する.
 
@@ -344,11 +345,15 @@ def make_ismcts_agent(
         rollout_policy: 葉の評価方策（既定: ヒューリスティック）。
         fetch_priors: 山札サーチの取得優先度 {cardId: 取得率}（§47・サブ選択即決と
             rollout 既定方策に効く。未指定なら従来挙動）。
+        attach_priors: エネ付与先の切替確率 {アクティブの装着エネ枚数: P(ベンチ付与)}
+            （mine_attach_policy.py の帯実測。未指定なら従来挙動＝アクティブ優先）。
 
     行動選択は**ヒューリスティックをアンカー**にし、MCTS が十分な訪問数かつ
     明確なマージンで上回ったときだけ逸脱する（信号が弱い低予算では heuristic に一致＝劣化しない）。
     """
-    heuristic = make_heuristic_agent(meta, fetch_priors=fetch_priors)
+    heuristic = make_heuristic_agent(
+        meta, fetch_priors=fetch_priors, attach_priors=attach_priors
+    )
     policy = rollout_policy or heuristic
     # 試合をまたいで持つクロック状態（elapsed=この試合で使った思考秒, last_turn=直近のターン番号）
     clock = {"elapsed": 0.0, "last_turn": None}

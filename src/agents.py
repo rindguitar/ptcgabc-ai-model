@@ -54,6 +54,7 @@ def make_heuristic_agent(
     meta: CardMeta,
     use_trainers: bool = True,
     fetch_priors: dict[int, float] | None = None,
+    attach_priors: dict[int, float] | None = None,
 ) -> Agent:
     """貪欲ヒューリスティックエージェントを生成する.
 
@@ -67,12 +68,17 @@ def make_heuristic_agent(
 
     fetch_priors: 山札サーチの取得優先度 {cardId: 教師の取得率}（§47・デッキ別）。
     未指定なら従来のカテゴリ順のみ＝挙動不変。
+
+    attach_priors: エネ付与先の切替確率 {アクティブの装着エネ枚数: P(ベンチ付与)}
+    （mine_attach_policy.py の帯実測）。上位帯はアーキタイプ不問でベンチへ 4〜5回/戦
+    エネを回す（我々1.2回）のが最普遍の操縦差で、アクティブ KO＝全エネ喪失の
+    ワンサイド負け（敗時サイド0〜1）の根因だった。未指定なら従来挙動（アクティブ優先）。
     """
 
     def heuristic_agent(obs: Observation, rng: random.Random) -> list[int]:
         sel = obs.select
         if sel.type == SelectType.MAIN:
-            return [_choose_main(obs, meta, rng, use_trainers)]
+            return [_choose_main(obs, meta, rng, use_trainers, attach_priors)]
         if sel.type == SelectType.ATTACK:
             return [_argmax_damage(sel.option, meta)]
         return _generic_select(obs, meta, fetch_priors)
@@ -81,7 +87,11 @@ def make_heuristic_agent(
 
 
 def _choose_main(
-    obs: Observation, meta: CardMeta, rng: random.Random, use_trainers: bool = True
+    obs: Observation,
+    meta: CardMeta,
+    rng: random.Random,
+    use_trainers: bool = True,
+    attach_priors: dict[int, float] | None = None,
 ) -> int:
     """MAIN 選択での貪欲な行動選択."""
     opts = obs.select.option
@@ -131,10 +141,20 @@ def _choose_main(
     if use_trainers and OptionType.TOOL_CARD in by_type:
         return rng.choice(by_type[OptionType.TOOL_CARD])
 
-    # 3. エネルギー付与（アクティブを優先して殴れる状態に近づける）
+    # 3. エネルギー付与: 既定はアクティブ優先（殴れる状態に近づける）。attach_priors が
+    #    あれば上位帯の実測 P(ベンチ付与|アクティブの装着エネ枚数) に従って確率的にベンチの
+    #    次アタッカーへ回す（帯共通の型: 空でも49%・2枚以上なら~80%がベンチ行き。
+    #    アクティブ KO＝全エネ喪失のワンサイド負けを防ぐ）。
     if OptionType.ATTACH in by_type:
         attach = by_type[OptionType.ATTACH]
         to_active = [i for i in attach if opts[i].inPlayArea == AreaType.ACTIVE]
+        to_bench = [i for i in attach if opts[i].inPlayArea == AreaType.BENCH]
+        if attach_priors and to_active and to_bench and st is not None:
+            active = (st.players[st.yourIndex].active or [None])[0]
+            act_e = len(active.energyCards or []) if active is not None else 0
+            p_bench = attach_priors.get(min(act_e, max(attach_priors)), 0.0)
+            if rng.random() < p_bench:
+                return _pick_bench_attach(to_bench, opts, st, meta)
         return rng.choice(to_active or attach)
 
     # 4. 手札のたねポケモンをベンチ展開
@@ -319,6 +339,31 @@ def ko_threat(attacker, defender, meta: CardMeta) -> float:
             )
             threat = max(threat, base_w * w)
     return threat
+
+
+def _pick_bench_attach(indices: list[int], opts, st, meta: CardMeta) -> int:
+    """ベンチ付与の対象を「攻撃準備に最も近い子」にする.
+
+    選び方: 1. 最小の不足エネ（attack_cost − 装着数・撃てるワザが無い子は最後）
+    → 2. 装着数が多い → 3. HP が高い。エネを散らして誰も完成しない事態を避け、
+    次のアタッカーを一点集中で立てる（上位帯の「後続充電」の意図を写す）。
+    """
+    bench = st.players[st.yourIndex].bench or []
+
+    def readiness(i: int):
+        b = opts[i].inPlayIndex
+        pk = bench[b] if b is not None and 0 <= b < len(bench) else None
+        if pk is None:
+            return (99, 0, 0)
+        n_e = len(pk.energyCards or [])
+        shortfalls = [
+            max(meta.attack_cost.get(aid, 1) - n_e, 0)
+            for aid in meta.card_attacks.get(pk.id, [])
+        ]
+        sf = min(shortfalls) if shortfalls else 99
+        return (sf, -n_e, -(pk.hp or 0))
+
+    return min(indices, key=readiness)
 
 
 def _argmax_damage(opts, meta: CardMeta) -> int:

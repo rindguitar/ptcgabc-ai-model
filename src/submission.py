@@ -60,6 +60,15 @@ def _load_fetch_priors(path: str) -> dict[int, float] | None:
     return {int(k): float(v) for k, v in priors.items()} or None
 
 
+def _load_attach_priors(path: str) -> dict[int, float] | None:
+    """同梱の attach_priors.json（エネ付与先の帯実測）を読む。無ければ None＝従来挙動.
+
+    形式は fetch_priors と同じ {"priors": {エネ枚数: P(ベンチ)}} または素の辞書
+    （mine_attach_policy.py の出力）。キーは int に正規化して返す。
+    """
+    return _load_fetch_priors(path)
+
+
 def _load_opp_pool(dir_path: str) -> list[list[int]]:
     """相手候補デッキ群（60枚 CSV）を dir から読む。無ければ /kaggle 提出パスにフォールバック."""
     import glob
@@ -90,6 +99,7 @@ def make_kaggle_agent(
     game_budget: float | None = 540.0,
     time_budget: float = 0.5,
     fetch_priors_path: str = "fetch_priors.json",
+    attach_priors_path: str = "attach_priors.json",
     **policy_kwargs,
 ) -> Callable[[dict], list[int]]:
     """公式形式 `agent(obs_dict) -> list[int]` を返す.
@@ -101,18 +111,22 @@ def make_kaggle_agent(
         opp_pool_dir: 相手候補デッキ群のディレクトリ（指定すると観測整合で相手デッキを推定）。
         game_budget/time_budget: ISMCTS の時間管理（game_budget 優先）。
         fetch_priors_path: 山札サーチ優先度 JSON（§47・同梱時のみ有効・無ければ従来挙動）。
+        attach_priors_path: エネ付与先 JSON（帯実測・同梱時のみ有効・無ければ従来挙動）。
     """
     meta = meta or load_card_meta()
     deck = list(deck) if deck is not None else _read_deck_csv(deck_path)
     opp_deck = list(opp_deck) if opp_deck is not None else list(deck)
     opp_pool = _load_opp_pool(opp_pool_dir) if opp_pool_dir else None
     fetch_priors = _load_fetch_priors(fetch_priors_path)
+    attach_priors = _load_attach_priors(attach_priors_path)
     rng = random.Random(seed)
 
     if policy == "heuristic":
         from agents import make_heuristic_agent
 
-        inner = make_heuristic_agent(meta, fetch_priors=fetch_priors)
+        inner = make_heuristic_agent(
+            meta, fetch_priors=fetch_priors, attach_priors=attach_priors
+        )
     elif policy == "random":
         from agents import random_agent
 
@@ -128,6 +142,7 @@ def make_kaggle_agent(
             game_budget=game_budget,
             opp_pool=opp_pool,
             fetch_priors=fetch_priors,
+            attach_priors=attach_priors,
             **policy_kwargs,
         )
     elif policy == "nn":
@@ -168,12 +183,15 @@ def make_kaggle_agent(
             game_budget=game_budget,
             opp_pool=opp_pool,
             fetch_priors=fetch_priors,
+            attach_priors=attach_priors,
             **policy_kwargs,
         )
         # 時間ガード: NN-MCTS は sims 固定で ISMCTS のような自前の時計を持たない。
         # 累積消費が game_budget を超えたら heuristic（瞬時）へ退避し、600秒クロック
         # 超過（時間切れ負け）を防ぐ。通常は 1手 ~0.1秒 × 数百手 << 540秒で発動しない保険。
-        heuristic_fb = make_heuristic_agent(meta, fetch_priors=fetch_priors)
+        heuristic_fb = make_heuristic_agent(
+            meta, fetch_priors=fetch_priors, attach_priors=attach_priors
+        )
         spent = [0.0]
 
         def inner(obs, inner_rng):
