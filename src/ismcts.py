@@ -24,6 +24,7 @@ from agents import Agent, make_heuristic_agent
 from cards import CardMeta
 from cg.api import (
     Observation,
+    OptionType,
     SearchState,
     SelectType,
     search_begin,
@@ -321,6 +322,7 @@ def make_ismcts_agent(
     max_rollout_depth: int = 300,
     min_visits: int = 15,
     select_margin: float = 0.05,
+    end_margin: float | None = None,
     rollout_policy: Agent | None = None,
     opp_pool: list[list[int]] | None = None,
     fetch_priors: dict[int, float] | None = None,
@@ -342,6 +344,10 @@ def make_ismcts_agent(
         max_rollout_depth: rollout の最大手数（打ち切り時はサイド差で価値推定）。
         min_visits: 行動を信頼するのに必要な集計訪問数（これ未満は採用しない）。
         select_margin: ヒューリスティックの手を上回ったと見なす平均価値の差。
+        end_margin: heuristic が終了以外を提案しているのに「ターン終了」へ逸脱する場合
+            だけ要求する、より大きいマージン（None=無効＝select_margin と同じ・挙動不変）。
+            実戦 replay の実測でターン打ち切りの約1/3（終了1.4回/戦）が探索の上書きで、
+            決定あたりの打ち切り採択率が上位帯の2〜3倍だったことへの対処。
         rollout_policy: 葉の評価方策（既定: ヒューリスティック）。
         fetch_priors: 山札サーチの取得優先度 {cardId: 取得率}（§47・サブ選択即決と
             rollout 既定方策に効く。未指定なら従来挙動）。
@@ -428,20 +434,53 @@ def make_ismcts_agent(
         h_action = tuple(heuristic(obs, rng))  # アンカー（既定の手）
         if not agg:
             return list(h_action)
-
-        # ヒューリスティックの手の平均価値を基準に、明確に上回る行動だけ採用する
-        def mean_value(key: tuple[int, ...]) -> float:
-            visits, value_sum = agg[key]
-            return value_sum / visits if visits > 0 else 0.0
-
-        best_key = h_action
-        best_mean = mean_value(h_action) if h_action in agg else -1.0
-        for key, (visits, value_sum) in agg.items():
-            if visits < min_visits:
-                continue
-            m = value_sum / visits
-            if m > best_mean + select_margin:
-                best_key, best_mean = key, m
-        return list(best_key)
+        return _select_action(
+            agg, h_action, obs.select.option, min_visits, select_margin, end_margin
+        )
 
     return ismcts_agent
+
+
+def _select_action(
+    agg: dict,
+    h_action: tuple[int, ...],
+    options,
+    min_visits: int,
+    select_margin: float,
+    end_margin: float | None = None,
+) -> list[int]:
+    """集計訪問から採用する行動を選ぶ（アンカー逸脱ルール・§19）.
+
+    流れ: 1. heuristic の手の平均価値を基準にする → 2. min_visits 以上の候補のうち
+    マージンを明確に上回るものだけ採用 → 3. END への逸脱だけは end_margin（指定時）を要求。
+
+    END は唯一「何も生まない」手＝展開してから後で終了しても失うものがほぼ無いのに、
+    rollout 地平線の外にある展開の見返りが僅差ノイズで END に負け、ターンが早畳みされて
+    行動機会が複利で消えていた（実測: 終了への上書き1.4回/戦）。heuristic 自身が END を
+    提案している時は適用しない（選択肢が尽きた正当な終了まで妨げない）。
+    """
+
+    def mean_value(key: tuple[int, ...]) -> float:
+        visits, value_sum = agg[key]
+        return value_sum / visits if visits > 0 else 0.0
+
+    def is_end(key: tuple[int, ...]) -> bool:
+        return (
+            len(key) == 1
+            and 0 <= key[0] < len(options)
+            and getattr(options[key[0]], "type", None) == OptionType.END
+        )
+
+    h_is_end = is_end(h_action)
+    best_key = h_action
+    best_mean = mean_value(h_action) if h_action in agg else -1.0
+    for key, (visits, value_sum) in agg.items():
+        if visits < min_visits:
+            continue
+        margin = select_margin
+        if end_margin is not None and not h_is_end and is_end(key):
+            margin = end_margin
+        m = value_sum / visits
+        if m > best_mean + margin:
+            best_key, best_mean = key, m
+    return list(best_key)
