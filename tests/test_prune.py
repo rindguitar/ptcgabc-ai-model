@@ -1,6 +1,7 @@
 """prune_replays の破棄判定テスト（消費者通過・自分の試合の温存・dry-run）."""
 
 import csv
+import json
 import os
 import sys
 
@@ -20,7 +21,8 @@ def _write_json(path: str) -> None:
 
 
 def _build(root):
-    """others に A,B（両消費者済）,D（value 未消費）・ismcts に C・alphago_v4 に E（派生）を置く."""
+    """others に A,B（analyze/value/fetch_priors 済・role_priors は A のみ）,
+    D（何にも未消費）・ismcts に C・alphago_v4 に E（派生）を置く."""
     _write_json(os.path.join(root, "others", "A.json"))
     _write_json(os.path.join(root, "others", "B.json"))
     _write_json(os.path.join(root, "others", "D.json"))
@@ -37,6 +39,23 @@ def _build(root):
         os.path.join(root, "value_samples.npz"),
         episodes=np.asarray(["A", "B", "C", "E"]),
     )
+    # fetch_priors 済み（--team 無指定想定・両席タグ）: A,B（D は未消費）
+    fp_dir = os.path.join(root, "fetch_priors")
+    os.makedirs(fp_dir, exist_ok=True)
+    with open(os.path.join(fp_dir, "state.json"), "w") as f:
+        json.dump({"episodes": ["A#0", "A#1", "B#0", "B#1"], "keys": {}}, f)
+    # role_priors 済み: A のみ（B は未消費＝4消費者そろわないケースを作る）
+    with open(os.path.join(fp_dir, "role_state.json"), "w") as f:
+        json.dump({"episodes": ["A#0", "A#1"], "keys": {}}, f)
+
+
+def _priors_state_args(root):
+    return [
+        "--fetch-priors-state",
+        os.path.join(root, "fetch_priors", "state.json"),
+        "--role-priors-state",
+        os.path.join(root, "fetch_priors", "role_state.json"),
+    ]
 
 
 def _run(root, extra):
@@ -97,3 +116,42 @@ def test_unknown_consumer_errors(tmp_path):
     _build(tmp_path)
     with pytest.raises(SystemExit):
         _run(tmp_path, ["--consumers", "bogus"])
+
+
+def test_consumers_fetch_and_role_priors_intersect(tmp_path):
+    _build(tmp_path)
+    # others は既定 keep-variants なので --include-own で外し、fetch_priors/role_priors のみで判定
+    _run(
+        tmp_path,
+        ["--apply", "--include-own", "--consumers", "fetch_priors,role_priors"]
+        + _priors_state_args(tmp_path),
+    )
+    # A は両方の state に載っている → 破棄
+    assert not _exists(tmp_path, "others", "A.json")
+    # B は fetch_priors のみ（role_priors 未消費）→ 交差判定で温存
+    assert _exists(tmp_path, "others", "B.json")
+    assert _exists(tmp_path, "others", "D.json")  # どちらも未消費 → 温存
+
+
+def test_mine_teachers_style_prune_requires_all_four(tmp_path):
+    _build(tmp_path)
+    # make mine-teachers と同じ呼び出し形（others を keep-variants から外し、4消費者を必須化）
+    _run(
+        tmp_path,
+        [
+            "--apply",
+            "--keep-variants",
+            "alphago,ismcts,nn",
+            "--consumers",
+            "analyze,value,fetch_priors,role_priors",
+        ]
+        + _priors_state_args(tmp_path),
+    )
+    # A は analyze/value/fetch_priors/role_priors すべて通過 → 破棄
+    assert not _exists(tmp_path, "others", "A.json")
+    # B は role_priors が未消費 → 4消費者そろわず温存
+    assert _exists(tmp_path, "others", "B.json")
+    assert _exists(tmp_path, "others", "D.json")  # 何も消費していない → 温存
+    # 自分の試合・派生ディレクトリは others を keep-variants から外しても引き続き保護
+    assert _exists(tmp_path, "ismcts", "C.json")
+    assert _exists(tmp_path, "alphago_v4", "E.json")

@@ -21,7 +21,7 @@ RUN     := $(COMPOSE) run --rm dev
 
 .DEFAULT_GOAL := help
 .PHONY: help deps lint format fmt-check test smoke bench check \
-        ratchet ratchet-overnight ratchet-nn ratchet-nn-overnight gauntlet-real replays replays-prune replays-daily replay-extract replay-tune eval-deck champion-gate \
+        ratchet ratchet-overnight ratchet-nn ratchet-nn-overnight gauntlet-real replays replays-prune replays-daily mine-teachers replay-extract replay-tune eval-deck champion-gate \
         train distill distill-1h distill-overnight improve improve-1h eval-net eval-net-ismcts diagnose \
         submission build rebuild shell jupyter gpu-check exec up down clean
 
@@ -170,6 +170,20 @@ replays-daily: ## 日次: replays → replay-extract → prune --apply（消費�
 # リーダーボード上位の replay を data/replays/others/ に置いて実行（チーム別成績・デッキ・時間）。
 top-replays: ## 上位チーム replay の分析（others/ 配下・チーム別勝率/デッキ/時間・ホスト）
 	$(PY) scripts/analyze_top_replays.py $(TOP_REPLAYS_ARGS)
+
+# 教師データ一括処理（others/）: マイニング2種＋レポート2種＋analyze/value を通してから
+# 4消費者（analyze,value,fetch_priors,role_priors）を揃えて others/ のみ自動破棄する。
+# mine_subselects/behavior_diff は --team 等が必須で全体一括に馴染まないため対象外
+# （使うなら本コマンドの前に手動実行・破棄されると再実行できない）。
+mine-teachers: ## 教師データ一括処理（others/）: マイニング+レポート+value抽出→消費済みを自動破棄（ホスト）
+	$(PY) scripts/mine_fetch_priorities.py
+	$(PY) scripts/mine_search_role_priors.py
+	$(PY) scripts/scout_field.py
+	$(PY) scripts/analyze_top_replays.py
+	$(PY) scripts/analyze_replays.py --team "$(MY_TEAM)"
+	$(PY) scripts/extract_replay_samples.py
+	$(PY) scripts/prune_replays.py --apply --keep-variants alphago,ismcts,nn \
+		--consumers analyze,value,fetch_priors,role_priors
 
 # 教師方策クローン（§33）: 任意チームの実戦決定を教師に policy を fine-tune。
 # 例: make teacher-extract TEACHER_TEAM="<チーム名>" → make teacher-tune TEACHER_SAMPLES=<npz>
