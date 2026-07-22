@@ -2,6 +2,13 @@
 
 最終更新: 2026-07-22（セッション終了時に必ず更新）
 
+## ブランチ状況
+- `feature/fetch-priority` を `main` へマージ済み（§47/§48/§49/§50/§51/§52・mine-teachers）。
+  ローカル・リモートとも削除済み。
+- `feature/alphago-recycle`（`feature/fetch-priority` の分岐元・分岐後の追加コミットなし＝
+  main に完全内包）も同時に削除済み。
+- 次の作業は `main` から新しいブランチを切る（このブランチには戻らない）。
+
 ## 現在のフェーズ
 **65c6b47e（遅滞デッキ）両枠運用・v2（fetch_priors×ismcts／threat_bonus×nn）1日経過で決着**（§57）:
 - 枠1（ismcts）: `submission_stall_ismcts_v2.tar.gz`（fetch_priors・TeamJ分）
