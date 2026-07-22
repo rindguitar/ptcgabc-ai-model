@@ -6,9 +6,9 @@ CLAUDE.md 本体とセットで使う付属ファイル群とプロンプト集�
 - **条件付きロード**: `.claude/rules/*.md`（paths 指定。該当ファイルを触るときだけロード・実挙動は要確認）
 - **状態**: `docs/STATUS.md`（変化する情報。規約とは分離して化石化を防ぐ）
 
-> このプロジェクトには既に `docs/learning/`（design-decisions §1〜・glossary・architecture・
+> このプロジェクトには既に `docs/learning/`（decisions.md §1〜・glossary・architecture・
 > replay-format）と Claude の横断メモリがある。キットはそれと**競合させない**:
-> 設計判断（ADR）は `docs/learning/design-decisions.md` が正（テンプレの decisions.md は使わない）。
+> 設計判断（ADR）は `docs/learning/decisions.md` が正（2026-07-19 に design-decisions.md から改名）。
 
 ---
 
@@ -18,7 +18,7 @@ CLAUDE.md 本体とセットで使う付属ファイル群とプロンプト集�
 CLAUDE.md                     # 薄いインデックス（常時ロード・競技規約入り）
 docs/
   STATUS.md                   # 現在地・次の一手（毎セッション更新）
-  learning/design-decisions.md# ADR（§N. 形式・ここが正）
+  learning/decisions.md# ADR（§N. 形式・ここが正）
 .claude/
   agents/
     explorer.md               # haiku: 探索・grep（読み取り専用・Competition Data 非開示）
@@ -68,7 +68,7 @@ docs/STATUS.md を読んで「次の一手」の1番から進めてください�
 ### 3-5. 終了（毎回）
 ```
 ここまでにします。docs/STATUS.md を更新（前回やったこと/次の一手/未解決）。
-設計判断があれば docs/learning/design-decisions.md に「## N.」で追記・新語は glossary へ。
+設計判断があれば docs/learning/decisions.md に「## N.」で追記・新語は glossary へ。
 コミット・プッシュ漏れがないかも確認してください。
 ```
 
@@ -83,7 +83,7 @@ docs/STATUS.md を読んで「次の一手」の1番から進めてください�
 
 - **1セッション1目的**。跨ぐなら STATUS を更新して新セッションへ（長いコンテキストは高い）。
 - 計画立案には **Plan モード**（Shift+Tab）＝実装前の思考に編集権限は不要。
-- STATUS が肥大したら古い内容を design-decisions.md へ移し「現在地」だけに保つ。
+- STATUS が肥大したら古い内容を decisions.md へ移し「現在地」だけに保つ。
 - 規約が増えたら CLAUDE.md に足さず `.claude/rules/` にトピック別で。
 - Claude に同じ指摘を2回したら、その場で `#` から始めて即追記する。
 - このキット自体もプロジェクトに合わせて削る・足す（このファイルが適用版）。
@@ -96,4 +96,4 @@ docs/STATUS.md を読んで「次の一手」の1番から進めてください�
   （例外: STATUS.md 更新のみ現在ブランチ可）。
 - **長時間・GPU コマンドはユーザーが実行**（train/distill/eval-net/eval-deck/league/ratchet 等）。
 - **replay JSON は teacher-extract / replay-extract を済ませるまで削除しない**（行動クローンは生 JSON が必要）。
-- 判定の作法: keep-best・外部 A/B・事前登録（design-decisions §21/§30/§34）。
+- 判定の作法: keep-best・外部 A/B・事前登録（decisions.md §21/§30/§34）。

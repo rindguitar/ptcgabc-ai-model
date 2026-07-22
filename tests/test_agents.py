@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 
 pytest.importorskip("cg.api", reason="cabt Engine (cg) が見つからない")
 
-from agents import _choose_main, _generic_select  # noqa: E402
+from agents import _choose_main, _generic_select, find_forced_recycle  # noqa: E402
 from cards import load_card_meta  # noqa: E402
 from cg.api import AreaType, OptionType, SelectContext, SelectType  # noqa: E402
 
@@ -52,7 +52,13 @@ def test_no_retreat_when_attack_available(meta):
     """攻撃できるなら（にげるより）攻撃する."""
     opts = [
         NS(type=OptionType.RETREAT, index=None, inPlayArea=None, inPlayIndex=None),
-        NS(type=OptionType.ATTACK, attackId=0, index=None, inPlayArea=None, inPlayIndex=None),
+        NS(
+            type=OptionType.ATTACK,
+            attackId=0,
+            index=None,
+            inPlayArea=None,
+            inPlayIndex=None,
+        ),
     ]
     obs = _obs_main(opts, active=[_pk(1, 80)], bench=[_pk(3, 100)])
     assert _choose_main(obs, meta, random.Random(0)) == 1  # ATTACK
@@ -118,7 +124,9 @@ def test_recycle_when_deck_low(meta):
     if rid is None:
         pytest.skip("メタにリサイクル札が無い")
     hand = [NS(id=rid)]
-    me = NS(hand=hand, discard=[], active=[_pk(1, 80)], bench=[], prize=[], deckCount=10)
+    me = NS(
+        hand=hand, discard=[], active=[_pk(1, 80)], bench=[], prize=[], deckCount=10
+    )
     st = NS(yourIndex=0, players=[me, NS()], stadium=None)
     opts = [
         NS(type=OptionType.PLAY, index=0, inPlayArea=None, inPlayIndex=None),
@@ -130,3 +138,36 @@ def test_recycle_when_deck_low(meta):
 
     me.deckCount = 40  # 山が厚ければ温存（END へ）
     assert _choose_main(obs, meta, random.Random(0)) == 1
+
+
+def test_find_forced_recycle_returns_index_or_none(meta):
+    """find_forced_recycle（§43 共用ヘルパ）: 僅少時のみリサイクル PLAY の index を返す."""
+
+    rid = next((c for c, v in meta.is_deck_recycle.items() if v), None)
+    if rid is None:
+        pytest.skip("メタにリサイクル札が無い")
+    nid = next(c for c in meta.card_type if not meta.is_deck_recycle.get(c, False))
+    hand = [NS(id=nid), NS(id=rid)]  # 先頭は非リサイクル札＝素通りの確認
+    me = NS(
+        hand=hand, discard=[], active=[_pk(1, 80)], bench=[], prize=[], deckCount=10
+    )
+    st = NS(yourIndex=0, players=[me, NS()], stadium=None)
+    opts = [
+        NS(type=OptionType.PLAY, index=0, inPlayArea=None, inPlayIndex=None),
+        NS(type=OptionType.PLAY, index=1, inPlayArea=None, inPlayIndex=None),
+        NS(type=OptionType.END, index=None, inPlayArea=None, inPlayIndex=None),
+    ]
+    sel = NS(type=SelectType.MAIN, option=opts, minCount=1, maxCount=1, deck=None)
+    obs = NS(current=st, select=sel)
+    assert find_forced_recycle(obs, meta) == 1  # リサイクル札の PLAY だけを拾う
+
+    me.deckCount = 40  # 山が厚ければ発動しない
+    assert find_forced_recycle(obs, meta) is None
+
+    me.deckCount = 20  # 閾値の上書き（§43 A/B）: 既定15では発動せず・25なら発動
+    assert find_forced_recycle(obs, meta) is None
+    assert find_forced_recycle(obs, meta, recycle_at=25) == 1
+
+    sel.type = SelectType.ATTACK  # MAIN 以外では発動しない
+    me.deckCount = 10
+    assert find_forced_recycle(obs, meta) is None

@@ -20,7 +20,7 @@ import random
 import time
 from typing import Callable
 
-from agents import Agent, make_heuristic_agent
+from agents import Agent, find_forced_recycle, make_heuristic_agent
 from cards import CardMeta
 from cg.api import (
     Observation,
@@ -57,7 +57,7 @@ def plan_search(
 
     unit_cost = 「1 simulation × 1 determinization」の実測秒（EMA・floor 込み）。未計測（初手）は
     (base_sims, base_dets)。1手予算 = 残り予算 ÷ 残り決定数の見込み、units = 予算÷単価を
-    **決定化の幅（dets）優先**で配る: この net は sims 32≈64 で深さ飽和の実測（design-decisions）が
+    **決定化の幅（dets）優先**で配る: この net は sims 32≈64 で深さ飽和の実測（decisions.md）が
     あり、不完全情報では決定化平均（PIMC）の分散低減＝§26 ベイズ推定の多サンプル化の方が効くため。
     base を床（従来品質を下回らない）・cap を天井（1手の暴走・メモリの防止）。
     """
@@ -215,9 +215,12 @@ def _simulate(
                 # この _Node をそのまま扱える（遅延 import で循環を回避）。
                 from ismcts import _rollout
 
-                value = sum(
-                    _rollout(node, fallback, rng, 300) for _ in range(leaf_rollouts)
-                ) / leaf_rollouts
+                value = (
+                    sum(
+                        _rollout(node, fallback, rng, 300) for _ in range(leaf_rollouts)
+                    )
+                    / leaf_rollouts
+                )
             break
         i = _puct_action(node, c_puct)
         key = tuple(node.actions[i])
@@ -333,6 +336,8 @@ def make_nn_mcts_agent(
     game_budget: float | None = None,
     max_simulations: int | None = None,
     leaf_rollouts: int = 0,
+    recycle_at: int | None = None,
+    fetch_priors: dict[int, float] | None = None,
 ) -> Agent:
     """NN 誘導 MCTS（PUCT）エージェントを生成する.
 
@@ -349,7 +354,8 @@ def make_nn_mcts_agent(
     実測で NN 提出は 600 秒中 ~550 秒を残しており、推論時間は未使用の計算資源。
     eval/gate は game_budget を渡さない＝従来の固定 sims（測定時間が爆発しない）。
     """
-    heuristic = make_heuristic_agent(meta)
+    # fetch_priors（§47）: 山札サーチの取得優先度。サブ選択即決と rollout の fallback 既定に効く
+    heuristic = make_heuristic_agent(meta, fetch_priors=fetch_priors)
     evaluator = evaluator or make_prize_evaluator(meta)
     fallback = fallback or heuristic
     sims_cap = max_simulations or n_simulations * 8
@@ -360,6 +366,14 @@ def make_nn_mcts_agent(
         sel = obs.select
         if sel is None or len(sel.option) <= 1 or sel.type not in _MCTS_SELECT_TYPES:
             return heuristic(obs, rng)
+        # ⓪リサイクル強制手（§43）: §39 の deck-out 対策は heuristic の MAIN 優先順にあり、
+        # MCTS 経路は floor0 だと heuristic を一切参照しない（実測: alphago リサイクル 13% vs
+        # ismcts 84%・敗因1位が deck-out 43〜55%）。残デッキ僅少時のリサイクルだけは
+        # 探索の visit に委ねず確定させる（floor 全体を戻すと勝率が落ちるため、この1条件のみ）。
+        # 発動閾値は recycle_at で上書き可（未指定＝agents._RECYCLE_AT・閾値 A/B 用）。
+        forced = find_forced_recycle(obs, meta, recycle_at)
+        if forced is not None:
+            return [forced]
         if game_budget is not None:
             sims, dets = plan_search(
                 n_simulations,
@@ -381,9 +395,7 @@ def make_nn_mcts_agent(
             return action
         return _search_and_decide(obs, rng, n_simulations, n_determinizations)
 
-    def _search_and_decide(
-        obs: Observation, rng: random.Random, sims: int, dets: int
-    ):
+    def _search_and_decide(obs: Observation, rng: random.Random, sims: int, dets: int):
         visits = aggregate_visits(
             obs,
             my_deck,

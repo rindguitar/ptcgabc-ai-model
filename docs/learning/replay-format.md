@@ -16,7 +16,7 @@ episode JSON
 ├── statuses[2]       … 終了状態（"DONE" 正常 / "ERROR" / "TIMEOUT" …）
 ├── specification     … スキーマ定義（観測・行動・報酬の型の説明書き）
 └── steps[t][agent]   … ★本体。ターン t における各プレイヤーの記録
-    ├── action        … そのステップで返した行動（int のリスト）
+    ├── action        … ⚠️ **1つ前の step の observation への応答**（int のリスト・下記「ペアリング」）
     ├── reward / status / info
     └── observation   … そのプレイヤーから見えた盤面
         ├── current   … 状態（players の盤面・手札枚数・サイド残数 … 自分視点）
@@ -25,6 +25,15 @@ episode JSON
         ├── remainingOverageTime … 残りの累積持ち時間（600 秒起点）
         └── search_begin_input   … エンジンの探索 API 用のシリアライズ文字列（下記）
 ```
+
+## ⚠️ obs と action のペアリングは 1 step ずれる（§45 の教訓）
+
+**`obs[t]` への応答は `steps[t+1][seat].action` に記録される**（kaggle_environments の仕様:
+step t に「観測を見せた」記録、step t+1 に「返ってきた行動」の記録が入る）。同一 step で
+`steps[t].observation` と `steps[t].action` をペアにすると **off-by-one**——§45 の「誤デプロイ」
+誤報はこれが原因。行動ログ解析を**書き下ろさず**、正実装済みのスクリプト
+（extract_teacher_samples / scout_field / behavior_diff / mine_subselects の `steps[i + 1]` パターン）
+を再利用すること。新規に書く場合も、既知の正解（例: 初手デッキ提出）でキャリブレーションしてから使う。
 
 ## `search_begin_input` は何か（相手の ID ではない）
 
@@ -64,6 +73,8 @@ episode JSON
   **例外: A/B 判定が未決着のアームは決着まで残す**（追加の深掘りは生 JSON にしか無い情報を使う）。
 - **他チーム**（others/）: ① `make replays`（デッキ収穫）② `make top-replays`（成績の記録）
   ③ 教師候補は `make teacher-extract` ④ **本人の基準値算出**（手数・デッキ切れ率＝
-  design-decisions §35 の教訓: クローンとの比較基準に要る）→ 削除可。
+  decisions.md §35 の教訓: クローンとの比較基準に要る）
+  ⑤ 教師チームは `python scripts/mine_fetch_priorities.py --team <教師名>`
+  （サーチ取得優先度 §47・data/fetch_priors/ へ冪等蓄積）→ 削除可。
 - **迷ったら削除でなくアーカイブ**: `tar czf data/replays/archive/YYYYMMDD.tar.gz <フォルダ>`
   （容量 1/5〜1/10・後から再分析可能）。アーカイブも Competition Data＝追跡外・競技終了後に削除。

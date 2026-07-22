@@ -90,4 +90,4 @@
 ## 追跡外（Git 管理しない）
 - `src/cg/`（cabt エンジン）・`data/`（カードデータ・メタデッキ）＝**Competition Data**。
 - `models/`（学習済み `.pt`・チャンピオン CSV・gauntlet）＝生成物。
-- これらは `.gitignore` 済み。詳細は [design-decisions.md](design-decisions.md)「規約と公開計画」。
+- これらは `.gitignore` 済み。詳細は [decisions.md](decisions.md)「規約と公開計画」。

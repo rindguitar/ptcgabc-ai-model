@@ -34,7 +34,7 @@ league/ネットデッキ（デッキ）×リーダーボード諜報（§33）�
 
 ### 終了時
 1. `docs/STATUS.md` を更新（何をした / 何が残った / 次の一手 / ハマった点）
-2. 設計判断があれば `docs/learning/design-decisions.md` に「## N.」で追記・新語は glossary へ
+2. 設計判断があれば `docs/learning/decisions.md` に「## N.」で追記・新語は glossary へ
 3. コミット・プッシュ漏れがないか確認する
 
 ## モデル運用ルール（コスト規律）
@@ -108,7 +108,7 @@ league/ネットデッキ（デッキ）×リーダーボード諜報（§33）�
 | ファイル | 内容 | 読むタイミング |
 |---|---|---|
 | `docs/STATUS.md` | 現在地・次の一手 | **毎セッション開始時（必須）** |
-| `docs/learning/design-decisions.md` | 設計判断の記録（ADR・§1〜） | 設計変更を検討するとき |
+| `docs/learning/decisions.md` | 設計判断の記録（ADR・§1〜） | 設計変更を検討するとき |
 | `docs/learning/glossary.md` | 用語集 | 知らない用語が出たとき |
 | `docs/learning/architecture.md` | コード構造（src/ scripts/ の役割） | どこに何があるか探すとき |
 | `docs/learning/replay-format.md` | Kaggle replay JSON の構造 | replay を触るとき |

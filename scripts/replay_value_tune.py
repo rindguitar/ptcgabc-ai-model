@@ -1,6 +1,6 @@
 """実戦 replay の (state, z) で **value 頭だけ**を fine-tune する（torch・Docker）.
 
-design-decisions §24: 盤面（ベンチ切れ）信号は実戦の相手分布にしか無く、教師対局からは学べない。
+decisions.md §24: 盤面（ベンチ切れ）信号は実戦の相手分布にしか無く、教師対局からは学べない。
 本スクリプトは実戦 z（＝薄い盤面で実際に負けた結果）を value に回帰する＝学習で盤面感度を
 獲得する唯一の経路。policy_weight=0 で policy/特徴は触らず value 頭のみ動かす（我々の手の
 クローンや相手の手の雑音で policy を汚さない）。過学習を避けるため holdout で早期に見切る。

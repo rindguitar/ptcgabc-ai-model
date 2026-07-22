@@ -81,7 +81,7 @@ _AGENT_CALLS = {
     # ＋盤面補正（board-blind な value への注入・α=0.2 実測 +0.075）。
     "nn": '"nn", deck_path="deck.csv", opp_pool_dir="opp_decks", game_budget=540.0,\n'
     '    net_path="pvnet.pt", floor_rollouts={floor_rollouts}, board_bonus={board_bonus},\n'
-    '    leaf_rollouts={leaf_rollouts}',
+    "    leaf_rollouts={leaf_rollouts}, threat_bonus={threat_bonus}",
 }
 
 
@@ -93,6 +93,9 @@ def build(
     floor_rollouts: int = 8,
     board_bonus: float = 0.2,
     leaf_rollouts: int = 0,
+    recycle_at: int | None = None,
+    fetch_priors: str | None = None,
+    threat_bonus: float = 0.0,
 ) -> tuple[str, list[str]]:
     """提出パッケージを組み立てて (tar パス, 同梱物一覧) を返す."""
     build_dir = os.path.join(ROOT, "models", "submission")
@@ -101,8 +104,15 @@ def build(
     os.makedirs(build_dir)
 
     agent_call = _AGENT_CALLS[policy].format(
-        floor_rollouts=floor_rollouts, board_bonus=board_bonus, leaf_rollouts=leaf_rollouts
+        floor_rollouts=floor_rollouts,
+        board_bonus=board_bonus,
+        leaf_rollouts=leaf_rollouts,
+        threat_bonus=threat_bonus,
     )
+    if policy == "nn" and recycle_at is not None:
+        # リサイクル強制手（§43）の発動閾値の上書き（未指定は agents._RECYCLE_AT）。
+        # policy_kwargs 経由で make_nn_mcts_agent(recycle_at=...) へ素通しされる。
+        agent_call += f",\n    recycle_at={recycle_at}"
     with open(os.path.join(build_dir, "main.py"), "w") as f:
         f.write(MAIN_PY.format(agent_call=agent_call))
     # 我々のモジュールは package ptcgbot/ に入れ、相互 import を名前空間化する
@@ -123,6 +133,10 @@ def build(
     if policy == "nn":
         # 学習済み重みを root 直下 pvnet.pt に固定名で同梱（main.py の net_path と一致させる）
         shutil.copy(net_path, os.path.join(build_dir, "pvnet.pt"))
+    if fetch_priors:
+        # 山札サーチ優先度（§47）を固定名で同梱。make_kaggle_agent が既定パス
+        # fetch_priors.json を自動で読む（無ければ従来挙動＝main.py の変更は不要）。
+        shutil.copy(fetch_priors, os.path.join(build_dir, "fetch_priors.json"))
 
     # 相手候補デッキ群（観測整合の相手デッキ推定＝ベイズ事前分布）。中立名で同梱
     # （Pokémon 名を避ける）。実 replay から抽出した相手デッキ（data/replays/opp_decks/）を
@@ -130,7 +144,9 @@ def build(
     # 増えるほど強くなるループ。同一構成は重複除去する。
     opp_dir = os.path.join(build_dir, "opp_decks")
     os.makedirs(opp_dir)
-    real = sorted(glob.glob(os.path.join(ROOT, "data", "replays", "opp_decks", "*.csv")))
+    real = sorted(
+        glob.glob(os.path.join(ROOT, "data", "replays", "opp_decks", "*.csv"))
+    )
     sources = real or sorted(glob.glob(os.path.join(ROOT, "data", "*.csv")))
     idx, seen = 0, set()
     for p in sources:
@@ -188,12 +204,31 @@ def main() -> None:
         default=0,
         help="AlphaGo 型（§38）: 葉の価値を net でなく接地ロールアウト N 本の平均に（nn のみ）",
     )
+    parser.add_argument(
+        "--recycle-at",
+        type=int,
+        default=None,
+        help="リサイクル強制手（§43）の発動閾値（nn のみ・未指定=既定15・閾値 A/B 用。例 25）",
+    )
+    parser.add_argument(
+        "--fetch-priors",
+        default=None,
+        help="山札サーチ優先度 JSON（§47・mine_fetch_priorities.py の出力）を同梱する",
+    )
+    parser.add_argument(
+        "--threat-bonus",
+        type=float,
+        default=0.0,
+        help="value への KO 脅威注入 α（§48・nn のみ・0 で無効・α は eval で実測して決める）",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.deck):
         raise SystemExit(f"デッキが見つかりません: {args.deck}（先にリーグを実行）")
     if args.policy == "nn" and not (args.net and os.path.exists(args.net)):
         raise SystemExit(f"--policy nn には学習済みネットが必要: --net {args.net}")
+    if args.fetch_priors and not os.path.exists(args.fetch_priors):
+        raise SystemExit(f"fetch-priors が見つかりません: {args.fetch_priors}")
 
     out_tar, names = build(
         args.deck,
@@ -203,6 +238,9 @@ def main() -> None:
         floor_rollouts=args.floor_rollouts,
         board_bonus=args.board_bonus,
         leaf_rollouts=args.leaf_rollouts,
+        recycle_at=args.recycle_at,
+        fetch_priors=args.fetch_priors,
+        threat_bonus=args.threat_bonus,
     )
     size_mb = os.path.getsize(out_tar) / 1e6
     print(f"提出パッケージを作成: {out_tar} ({size_mb:.1f} MB・policy={args.policy})")

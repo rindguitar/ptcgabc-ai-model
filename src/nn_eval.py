@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import torch
 
+from agents import ko_threat
 from cards import CardMeta
 from cg.api import Observation
 from features import encode_actions, encode_observation
@@ -57,6 +58,29 @@ def wrap_board_bonus(evaluator: Evaluator, alpha: float) -> Evaluator:
 
             diff = board(st.players[yi]) - board(st.players[1 - yi])
             v = min(1.0, max(0.0, v + alpha * diff / 5.0))
+        return v, priors
+
+    return ev
+
+
+def wrap_threat_bonus(evaluator: Evaluator, meta: CardMeta, alpha: float) -> Evaluator:
+    """value に KO 脅威の対称差を注入するラッパー（§48・受けと詰めの事前信号）.
+
+    v' = clamp01(v − α × (相手→自分の脅威 − 自分→相手の脅威))。脅威は agents.ko_threat
+    （有効打点が残 HP に届くワザを、エネ充足度 1.0/0.5/0・ベンチ×0.5 で重み付けした最大値）。
+    「取られる前に受ける（逃げる/進化で耐える）」と「先に取る/育てて詰める」の両方向が
+    value に入り、探索が受けの手を自然に選べるようになる。wrap_board_bonus と同じ
+    注入様式＝α は eval-net のスイープで実測決定（0 で無効）。
+    """
+
+    def ev(obs: Observation) -> tuple[float, list[float]]:
+        v, priors = evaluator(obs)
+        st = obs.current
+        if st is not None:
+            yi = st.yourIndex
+            me, opp = st.players[yi], st.players[1 - yi]
+            diff = ko_threat(opp, me, meta) - ko_threat(me, opp, meta)
+            v = min(1.0, max(0.0, v - alpha * diff))
         return v, priors
 
     return ev

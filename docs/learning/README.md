@@ -6,7 +6,7 @@
 ## 使い方
 - 分からない言葉が出たら [glossary.md](glossary.md) を引く／無ければ追記する。
 - コードのどこに何があるかは [architecture.md](architecture.md)。
-- 「なぜそうしたか」は [design-decisions.md](design-decisions.md)（判断の理由・利点・欠点）。
+- 「なぜそうしたか」は [decisions.md](decisions.md)（判断の理由・利点・欠点）。
 - コードへは相対リンクで直結できる（例: [ismcts.py](../../src/ismcts.py)）。
 
 ## 構成
@@ -14,7 +14,7 @@
 |---|---|
 | [glossary.md](glossary.md) | 用語集（MCTS / ISMCTS / AlphaZero / 蒸留 / 過学習 / 並列化 など） |
 | [architecture.md](architecture.md) | コード構造（`src/` 各モジュールの役割と関係） |
-| [design-decisions.md](design-decisions.md) | 設計判断の理由（なぜ ISMCTS 操縦か・distill→improve・gauntlet など） |
+| [decisions.md](decisions.md) | 設計判断の理由（なぜ ISMCTS 操縦か・distill→improve・gauntlet など） |
 | [replay-format.md](replay-format.md) | Kaggle replay（episode JSON）の構造と読み方（相手デッキ抽出・時間検証） |
 
 ## ⚠️ 書いてよいこと / ダメなこと（規約）
@@ -23,4 +23,4 @@
   数値結果を書くときもデッキは「あるデッキ / 別デッキ」のように**伏せて**書く。
 - 競技期間中はこのリポジトリを **public にしない**。公開は競技終了後に
   「Competition Data 削除 → ライセンス付与 → Kaggle フォーラム告知 → public 化」の順で行う計画
-  （詳細は [design-decisions.md](design-decisions.md) の「公開計画」）。
+  （詳細は [decisions.md](decisions.md) の「公開計画」）。

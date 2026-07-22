@@ -1,7 +1,7 @@
 # 用語集
 
 このプロジェクトで出てくる技術用語を、初学者向けに短く説明する。詳しい使い所は
-[architecture.md](architecture.md) と [design-decisions.md](design-decisions.md) を参照。
+[architecture.md](architecture.md) と [decisions.md](decisions.md) を参照。
 
 ## 探索（ゲーム木 / MCTS 系）
 
@@ -133,7 +133,7 @@ NN-MCTS の手と heuristic の手が違うとき、両者を**実際に打っ�
 
 ### catastrophic forgetting / continual learning（継続学習）
 学習を続けると古い知識を忘れる現象（catastrophic forgetting）。`--resume` で重みを継ぎ足す継続学習では、
-容量飽和や分布シフトに注意（→ [design-decisions.md](design-decisions.md)「蓄積のデメリット」）。
+容量飽和や分布シフトに注意（→ [decisions.md](decisions.md)「蓄積のデメリット」）。
 
 ### drift（ドリフト）/ 安全弁
 自己対戦で学習が悪い方向へずれていくこと。本プロジェクトは「作業ネットの直近 eval が best を下回ったら
@@ -147,7 +147,7 @@ SGD は各 iter でパラメータが小さく揺れる。**単一 iter の net 
 - **SWA（Stochastic Weight Averaging）**: 学習後半の複数チェックポイントを**単純平均**する。
 - 効いる理由: 平均は損失地形の**平らで広い谷（汎化の良い解）**に寄りやすく、iter ごとの上振れ/下振れを打ち消す。
 - 本プロジェクトでの用途: 「最新 iter で eval」のノイズ対策。生の最新でなく **EMA net を保存・eval** すれば、
-  たまたま悪い iter を掴むリスクが減る（→ [design-decisions.md](design-decisions.md) §17）。
+  たまたま悪い iter を掴むリスクが減る（→ [decisions.md](decisions.md) §17）。
 - **落とし穴（実測）**: decay は**更新頻度とセット**。per-step 前提の 0.999 を per-iter（1 iter 1回）更新に
   使うと 30 iter でも 97% が初期重みのまま＝**学習が実質凍結**し、eval/best がずっと種を測り続ける。
   per-iter なら 0.9 程度（半減期≈7iter）。
@@ -174,7 +174,7 @@ self-play の学習信号は「**探索後の π − 素の policy**」の差分
 ### 注入テスト（value への手作り補正による事前検証）
 特徴追加＋再訓練（GPU 日単位）に投資する**前に**、狙いの信号を評価器へ外から注入して効果を測る手法。
 例: `v' = clamp01(v + α×(自駒数−敵駒数)/5)` を挟んだ floored NN を 40 試合評価。効けば「この信号を
-学習させる価値がある」の実証、効かなければ安く撤退できる（design-decisions §21 の「安い代替検証」）。
+学習させる価値がある」の実証、効かなければ安く撤退できる（decisions.md §21 の「安い代替検証」）。
 実装 [nn_eval.py](../../src/nn_eval.py) `wrap_board_bonus`。学習版が完成したら注入は撤去する。
 
 ### 温度スケジュール（self-play の手選択）
@@ -376,7 +376,7 @@ ene10-13/加速3・スタール型 poke12-13/初攻遅）、観測される行�
 ### Common Random Numbers（CRN・共通乱数）
 2つの設定（iter や net）を比べるとき、**同じ乱数（配牌・determinization）で対戦させる**手法。差が「運」
 でなく「設定の差」だけを反映するので、**比較の分散が激減**する。本プロジェクトは学習中 eval で毎回同じ
-固定シードから乱数を作り直し、iter 間比較を安定化（[design-decisions.md](design-decisions.md) §17）。
+固定シードから乱数を作り直し、iter 間比較を安定化（[decisions.md](decisions.md) §17）。
 
 ### 確認評価 / ヒステリシス（best 昇格）
 max 選抜の上振れ対策。候補が best を**マージン超**で上回ったときだけ、**別シードで再評価**し、`min(1回目,

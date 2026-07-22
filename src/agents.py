@@ -34,6 +34,11 @@ _DEVELOP_MASK = _DRAWSEARCH_MASK | _ACCEL_MASK
 # 山札リサイクル（§39）を発動する残デッキ閾値。1位の実測（発動中央値=残13枚）より
 # 少し早め＝掘り切る前に確実に戻せる余裕を持たせる。
 _RECYCLE_AT = 15
+# KO 脅威推定（§48）の定数: 弱点一致の打点倍率（ゲームルール）・
+# エネ1不足（次の1付与で打てる＝育成中）の割引・ベンチ攻撃役（昇格が要る）の割引
+_WEAKNESS_MULT = 2
+_THREAT_NEXT_TURN = 0.5
+_THREAT_BENCH = 0.5
 
 
 def random_agent(obs: Observation, rng: random.Random) -> list[int]:
@@ -45,7 +50,11 @@ def random_agent(obs: Observation, rng: random.Random) -> list[int]:
     return rng.sample(range(len(sel.option)), count)
 
 
-def make_heuristic_agent(meta: CardMeta, use_trainers: bool = True) -> Agent:
+def make_heuristic_agent(
+    meta: CardMeta,
+    use_trainers: bool = True,
+    fetch_priors: dict[int, float] | None = None,
+) -> Agent:
     """貪欲ヒューリスティックエージェントを生成する.
 
     方針（MAIN 選択）: **draw/search トレーナーを使う** → 進化 → エネ付与（アクティブ優先）
@@ -55,6 +64,9 @@ def make_heuristic_agent(meta: CardMeta, use_trainers: bool = True) -> Agent:
     use_trainers=False で旧挙動（トレーナー完全不使用）に戻せる（A/B 検証用）。
     旧挙動は「グッズの価値を系統的に過小評価→league がエネ過多デッキへ収束」の根因だった。
     draw/search 以外のトレーナー（妨害・回復等）は引き続き使わない（誤爆リスク回避）。
+
+    fetch_priors: 山札サーチの取得優先度 {cardId: 教師の取得率}（§47・デッキ別）。
+    未指定なら従来のカテゴリ順のみ＝挙動不変。
     """
 
     def heuristic_agent(obs: Observation, rng: random.Random) -> list[int]:
@@ -63,7 +75,7 @@ def make_heuristic_agent(meta: CardMeta, use_trainers: bool = True) -> Agent:
             return [_choose_main(obs, meta, rng, use_trainers)]
         if sel.type == SelectType.ATTACK:
             return [_argmax_damage(sel.option, meta)]
-        return _generic_select(obs, meta)
+        return _generic_select(obs, meta, fetch_priors)
 
     return heuristic_agent
 
@@ -83,16 +95,10 @@ def _choose_main(
     # エンジンは MAIN を毎回呼ぶので、優先順がそのまま「1ターン内の手順」になる。
     # ⓪はデッキ切れ負け対策（§39）: 1位は残~13枚でトラッシュを山へ戻して回し続ける
     # （本人のデッキ切れ負け4% vs 我々52% の差の正体）。掘る前に戻す＝この位置が必須。
-    if use_trainers and st is not None and OptionType.PLAY in by_type:
-        me = st.players[st.yourIndex]
-        if (me.deckCount or 0) <= _RECYCLE_AT:
-            recycle = [
-                i
-                for i in by_type[OptionType.PLAY]
-                if _is_recycle_play(opts[i], obs, meta)
-            ]
-            if recycle:
-                return recycle[0]
+    if use_trainers:
+        recycle = find_forced_recycle(obs, meta)
+        if recycle is not None:
+            return recycle
 
     if use_trainers:
         # 0. たね確保＋展開: draw/search/加速 のトレーナー・特性（掘る＆エネを伸ばす）
@@ -241,6 +247,80 @@ def _is_recycle_play(opt, obs: Observation, meta: CardMeta) -> bool:
     return cid is not None and meta.is_deck_recycle.get(cid, False)
 
 
+def find_forced_recycle(
+    obs: Observation, meta: CardMeta, recycle_at: int | None = None
+) -> int | None:
+    """残デッキ僅少時に打つべき山札リサイクル PLAY の option index を返す（無ければ None）.
+
+    §39 の⓪段（デッキ切れ対策）の判定を関数として公開し、heuristic の MAIN 優先順と
+    nn_mcts の探索前プレチェック（§43）で共用する。判定: 1. MAIN 選択であること →
+    2. 手札にリサイクル札の PLAY がある → 3. 残デッキ ≤ 閾値なら先頭の index。
+    recycle_at で発動閾値を上書きできる（未指定は _RECYCLE_AT・v3.5 系の閾値 A/B 用）。
+    """
+    sel = obs.select
+    st = obs.current
+    if sel is None or st is None or sel.type != SelectType.MAIN:
+        return None
+    recycle = [
+        i
+        for i, o in enumerate(sel.option)
+        if o.type == OptionType.PLAY and _is_recycle_play(o, obs, meta)
+    ]
+    if not recycle:
+        return None
+    me = st.players[st.yourIndex]
+    limit = _RECYCLE_AT if recycle_at is None else recycle_at
+    if (me.deckCount or 0) > limit:
+        return None
+    return recycle[0]
+
+
+def ko_threat(attacker, defender, meta: CardMeta) -> float:
+    """攻め側の場から受け側アクティブへの KO 脅威度を 0〜1 で返す（§48）.
+
+    流れ: 1. 受け側アクティブの残 HP を取る → 2. 攻め側の場の各ポケモン×各ワザで
+    有効打点（弱点一致で×2）が残 HP に届くものを脅威候補に → 3. エネ充足度で重み付け
+    （不足0=今打てる 1.0 / 不足1=次の1付与で打てる「育成中」0.5 / 不足2以上=0）、
+    ベンチの攻撃役は昇格が要るのでさらに×0.5 → 4. 全候補の最大値を返す。
+    近似: 色拘束・ワザ効果・どうぐ補正は見ない（枚数のみ）。正確な合法性・効果は
+    エンジンのシミュレーションが担保する＝これは value/heuristic への事前信号。
+
+    attacker/defender は PlayerState（テストではフェイク可）。
+    """
+    tgt = (defender.active or [None])[0] if defender is not None else None
+    if attacker is None or tgt is None:
+        return 0.0
+    tgt_hp = tgt.hp or 0
+    if tgt_hp <= 0:
+        return 0.0
+    weak = meta.weakness.get(tgt.id, -1)
+
+    threat = 0.0
+    candidates = [((attacker.active or [None])[0], 1.0)] + [
+        (p, _THREAT_BENCH) for p in (attacker.bench or [])
+    ]
+    for pk, base_w in candidates:
+        if pk is None or base_w <= threat:  # これ以上更新できない候補は飛ばす
+            continue
+        n_energy = len(pk.energies or [])
+        mult = (
+            _WEAKNESS_MULT
+            if weak != -1 and weak == meta.pokemon_type.get(pk.id, -1)
+            else 1
+        )
+        for aid in meta.card_attacks.get(pk.id, []):
+            if meta.attack_damage(aid) * mult < tgt_hp:
+                continue  # 届かないワザは脅威でない
+            shortfall = meta.attack_cost.get(aid, 1) - n_energy
+            w = (
+                1.0
+                if shortfall <= 0
+                else (_THREAT_NEXT_TURN if shortfall == 1 else 0.0)
+            )
+            threat = max(threat, base_w * w)
+    return threat
+
+
 def _argmax_damage(opts, meta: CardMeta) -> int:
     """ATTACK オプション列の中で最大ダメージのインデックス."""
     return max(range(len(opts)), key=lambda i: meta.attack_damage(opts[i].attackId))
@@ -251,14 +331,24 @@ def _argmax_damage_indices(indices: list[int], opts, meta: CardMeta) -> int:
     return max(indices, key=lambda i: meta.attack_damage(opts[i].attackId))
 
 
-def _generic_select(obs: Observation, meta: CardMeta) -> list[int]:
+def _generic_select(
+    obs: Observation,
+    meta: CardMeta,
+    fetch_priors: dict[int, float] | None = None,
+) -> list[int]:
     """MAIN/ATTACK 以外のサブ選択を無難に処理する.
 
     - 数値選択（ドロー枚数など）は最大化。
     - セットアップのベンチ展開は可能な限り並べる。
-    - **山札からの選択（サーチ）は「たね優先→エネ優先」で maxCount まで取る**。
+    - **山札からの選択（サーチ）は「エネ優先→その他」で maxCount まで取る**。
       旧実装は最小数（多くは 0 枚）でサーチを無駄撃ちしており、トレーナー活用の妨げだった。
-      たね優先はベンチ切れ（実戦敗因の6〜7割）への直接の対策。
+      たね優先はベンチ切れ（実戦敗因の6〜7割）への直接の対策として導入したが、上位帯
+      replay 実測（§50/§51・局面数136の型混在局面）でむしろ**たねポケモンは他候補との
+      混在時に忌避される**（選好指数 lift=0.46 で明確に低い。トレーナー各種は候補数なりの
+      lift≈1.0＝優先度差なし）と判明したため撤回・たねの特別枠を廃止した。
+    - **fetch_priors（§47）があるサーチでは、教師の取得率が分かる札をその率の降順で
+      カテゴリ順より前に置く**（リサイクル札等のキーカードをサーチで埋没させない・
+      §43 の発火機会＝札の可用性レバー）。未指定なら従来挙動。
     - **昇格/交代先（TO_ACTIVE/SWITCH）はエネが乗り HP の残る子を優先**（§31。旧実装は
       先頭固定＝KO 後に空のたねを前に出してサイドレースを落としていた）。
     - それ以外は必要最小数を先頭から選ぶ（任意選択は見送る）。
@@ -305,17 +395,29 @@ def _generic_select(obs: Observation, meta: CardMeta) -> list[int]:
         return list(range(min(sel.maxCount, n)))
 
     if sel.deck is not None and sel.maxCount > 0:
-        # 山札からのサーチ: たね > エネルギー > その他 の順に価値付けして取れるだけ取る
-        def rank(i: int) -> tuple[int, int]:
-            cid = sel.option[i].cardId or 0
-            if meta.is_basic_pokemon(cid):
-                return (0, i)
+        # 山札からのサーチ: 1. 教師の取得率が分かる札（fetch_priors）を率の降順 →
+        # 2. 残りは エネルギー > その他（たねポケモン含む） のカテゴリ順、で取れるだけ取る
+        # ⚠️ たねポケモンをエネより優先していた旧実装は§50/§51の実測で撤回（上記docstring）。
+        # エネ優先は上位帯実測でも lift≈1.0（否定されていない）ため維持。
+        # ⚠️ 山札検索の option は cardId を持たない（area/index/playerIndex/type のみ・
+        # 実測確認済み）。実カードは sel.deck[option.index].id で解決する（旧実装は
+        # cardId 直読みで常に 0 ＝カテゴリ分岐が機能していなかったバグ）。
+        def _search_card_id(i: int) -> int:
+            idx = sel.option[i].index
+            if idx is None or sel.deck is None or not (0 <= idx < len(sel.deck)):
+                return 0
+            return sel.deck[idx].id or 0
+
+        def rank(i: int) -> tuple[int, float, int]:
+            cid = _search_card_id(i)
+            if fetch_priors and cid in fetch_priors:
+                return (0, -fetch_priors[cid], i)
             if meta.card_type.get(cid) in (
                 CardType.BASIC_ENERGY,
                 CardType.SPECIAL_ENERGY,
             ):
-                return (1, i)
-            return (2, i)
+                return (1, 0.0, i)
+            return (2, 0.0, i)
 
         take = max(sel.minCount, min(sel.maxCount, n))
         return sorted(sorted(range(n), key=rank)[:take])
