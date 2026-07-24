@@ -204,12 +204,23 @@
   overage 最小433s。episodes_log.csv は 88 行追記済み（`make replays` 実行済み・
   実メタデッキ 704 件に成長）。
 
+## 次の提出（2026-07-25 決定・ビルド済み）
+- **ユーザー決定**: デッキは 65c6b47e に復帰・attach_priors は継続（機構作動を確認済みのため）。
+  枠B（stall_v4＝65c6+fetch+attach×nn）は**そのまま観測延長**（attach の判定材料を積み増す）。
+- **枠A 差し替え用にビルド済み**: `models/submission_stall_ismcts_v4.tar.gz`
+  （**ismcts＋end_margin=0.15（§60 初投入）**＋fetch カントー分（v3 ismcts と同一 JSON を
+  diff 確認）＋attach_priors（heuristic 層注入＝ismcts にも波及・§59）＋65c6b47e・
+  相手候補704デッキ）。配線プローブ済み: main.py 記載／make_ismcts_agent へ end_margin=0.15・
+  fetch 4エントリ・attach {0:0.49,1:0.57,2:0.79,3:0.77} の到達を実測。
+  **単発アップロードで最古側の枠A（965525fe・棄却済み）が落ちる＝アップロードはユーザー**。
+- **読み方**: 枠A(ismcts+end_margin) vs 枠B(nn)＝同デッキ・同priors の操縦A/B（§54 続き）
+  ＋end_margin の初実戦。判定手順: ①15h 時点で機構チェック（END への探索上書き回数/戦が
+  1.4 から減るか・採択率・健全性）②強さ判定（レート・勝率）は破綻がない限り 24h 以上で
+  （n≈40 の ±15pt では 15h 打ち切りは「明確な破綻」検知用）。
+
 ## 次の一手（優先順）
-0. **次の提出構成の決定（ユーザーと要相談）**: 65c6b47e 続投なら最良既知は v3nn 相当
-   （fetch_priors のみ・attach 無し）だが、attach のベンチ切れ削減は実利あり＝
-   「v3nn 復元」か「65c6b47e＋fetch＋attach 続行（枠Bをこのまま観測延長）」の二択。
-   ismcts＋end_margin（§60）の再登板もこのタイミングで検討可。
 1. ~~v3 ペアの1日経過分析~~ ~~デッキA/B の判定~~ **完了（§62・15hで打ち切り判定）**。
+   次は ismcts_v4 アップロード後の **15h 機構チェック → 24h 強さ判定**（上記）。
 2. **attach_priors の実戦投入**: `feature/attach-priors` をマージし、次回 nn 枠差し替え（v4）
    に fetch_priors＋attach_priors を同梱。デッキを変えるかは 3. の結果とセットで決める。
 3. **デッキ乗り換え評価（§58）**: 965525fe（本命・王者キラー常在・探索型実証）/
