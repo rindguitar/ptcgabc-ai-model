@@ -301,6 +301,23 @@
 - **次**: 24h+ で最終判定（レート平衡・対カウンター n 増）。F4 採用なら fetch 教師の増強
   （旗艦チーム replay 追加 DL→mine_fetch_priorities）を併せて次版へ。
 
+## A/B#2: 操縦 A/B on 4041254f（2026-07-27 決定・2本ビルド済み・アップロード待ち）
+- **§64 後の方針（ユーザー提案）**: どうせ2連が必要なら A/B キューのクリーン実験を走らせる。
+  選択は **操縦 A/B on F4**（レバー樹の分岐点: dev_margin=ismcts専用／threat・floor・
+  recycle=nn専用のため、操縦の勝者確定が投資判断の前提。新規コード不要で即出せる・
+  nn の時計1/10なら拮抗でもデータ2倍の利得）。デッキは実験期間中 4041254f 固定
+  （569帯受け入れ・65c6 復旧レシピは温存）。
+- **ビルド済み・2連の順**: ① `submission_4041254f_nn_v1.tar.gz`（実験側・先=旧側）:
+  nn＋operative＋floor8＋board0.2＋threat0＋fetch TeamO17＋attach。静的検証済み
+  （hash=4041254f・fetch/attach 同一・pvnet 同梱・main.py 配線は実績ある stall_v4 と同経路。
+  ホスト torch 無しのため動的プローブは省略）。
+  ② `submission_4041254f_ismcts_v2.tar.gz`（対照側・後=最新側・§39手筋）: §34 再ビルド
+  ——v1 と opp_decks 714→753 以外**バイト同一**を diff で確認・配線プローブ済み。
+- **注記**: ismcts 側は end_margin 入り＝「各操縦の最良構成同士」の比較（純操縦差ではない）。
+- **判定計画**: 15h 機構チェック（nn の overage ~50s・attach 発火・初攻撃T）→ 24h+ で
+  レート比較。nn 拮抗以上なら nn 系レバー（threat_bonus→floor）解禁、ismcts 勝ちなら
+  dev_margin A/B へ。
+
 ## 次の一手（優先順）
 1. ~~v3 ペアの1日経過分析~~ ~~デッキA/B の判定~~ ~~ismcts_v4 15h 機構チェック~~ **完了**。
    次は **ismcts_v4 の 24h+ 強さ判定**（レート・勝率・対枠B）。
