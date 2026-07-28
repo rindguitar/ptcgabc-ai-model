@@ -18,11 +18,19 @@
 消化試合数 nn39<ismcts55 で**反証**。
 **現在の両枠はいずれも 65c6 基準線 651 を下回る**（557/430）＝次の2連で入れ替え推奨（下記）。
 
-### 次の2連の推奨（ユーザー承認待ち）
-- 枠1（実験・先＝旧側）: **65c6b47e × ismcts ＋ dev_margin**（未実装・§60 の第二の逸脱に対する
-  1行レバー。実装→ruff/テスト→ビルドまで Claude 担当）
-- 枠2（対照・後＝最新側）: **65c6b47e × ismcts**（＝ismcts_v4 の §34 再ビルド・既知 651）
-- これで「651 の床を回収」と「dev_margin のクリーンA/B（同時・同デッキ・同操縦）」を同時に満たす。
+### 次の2連（2026-07-28 決定・§66・ビルド済み・アップロード待ち）
+残り13〜20日を踏まえ「小レバーの検証を打ち切り、床を回収しつつ最大の未解決点だけ答える」構成。
+- 枠1（先＝旧側）: **`models/submission_stall_ismcts_v5a_fetchonly.tar.gz`**
+  ——65c6b47e×ismcts＋**fetch のみ**（v2構成＝実績692の再現）
+- 枠2（後＝最新側）: **`models/submission_stall_ismcts_v5b_full.tar.gz`**
+  ——65c6b47e×ismcts＋fetch＋attach＋end_margin（v4構成＝実績651の再現）
+- **狙い**: 両枠とも最良候補＝**床（650〜690）を即回収**しつつ、「692 と 651 のどちらが本物か
+  ＝attach＋end_margin は寄与したのか」という最大の未解決点にタダで答えが出る。
+- **検証済み**: v5b は v4 と **opp_decks（704→791）以外バイト同一**。v5a は v2 と
+  モジュール4本が異なるが、差分は attach_priors/end_margin の追加パラメータ（既定 None）のみで、
+  逸脱ロジックは `end_margin=None` のとき v2 と**等価な式**であることをソース照合で確認
+  （`_generic_select` の §52 変更は v2 に既収録＝差分なし）。両本とも配線プローブ済み
+  （hash=65c6b47e・v5a: attach/end_margin ともに None・v5b: end_margin=0.15・attach 4値）。
 
 ### 以前のフェーズ（v2 期・参考）
 **65c6b47e（遅滞デッキ）両枠運用・v2（fetch_priors×ismcts／threat_bonus×nn）1日経過で決着**（§57）:
