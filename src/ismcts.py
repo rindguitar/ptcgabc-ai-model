@@ -323,6 +323,7 @@ def make_ismcts_agent(
     min_visits: int = 15,
     select_margin: float = 0.05,
     end_margin: float | None = None,
+    dev_margin: float | None = None,
     rollout_policy: Agent | None = None,
     opp_pool: list[list[int]] | None = None,
     fetch_priors: dict[int, float] | None = None,
@@ -348,6 +349,9 @@ def make_ismcts_agent(
             だけ要求する、より大きいマージン（None=無効＝select_margin と同じ・挙動不変）。
             実戦 replay の実測でターン打ち切りの約1/3（終了1.4回/戦）が探索の上書きで、
             決定あたりの打ち切り採択率が上位帯の2〜3倍だったことへの対処。
+        dev_margin: heuristic が展開手（PLAY／EVOLVE）を提案しているのに他の手へ逸脱する
+            場合だけ要求する、より大きいマージン（None=無効・挙動不変）。§60 の第二の逸脱
+            （展開提案の採択25% vs 上位帯40-50%）への対処。
         rollout_policy: 葉の評価方策（既定: ヒューリスティック）。
         fetch_priors: 山札サーチの取得優先度 {cardId: 取得率}（§47・サブ選択即決と
             rollout 既定方策に効く。未指定なら従来挙動）。
@@ -435,7 +439,13 @@ def make_ismcts_agent(
         if not agg:
             return list(h_action)
         return _select_action(
-            agg, h_action, obs.select.option, min_visits, select_margin, end_margin
+            agg,
+            h_action,
+            obs.select.option,
+            min_visits,
+            select_margin,
+            end_margin,
+            dev_margin,
         )
 
     return ismcts_agent
@@ -448,38 +458,54 @@ def _select_action(
     min_visits: int,
     select_margin: float,
     end_margin: float | None = None,
+    dev_margin: float | None = None,
 ) -> list[int]:
     """集計訪問から採用する行動を選ぶ（アンカー逸脱ルール・§19）.
 
     流れ: 1. heuristic の手の平均価値を基準にする → 2. min_visits 以上の候補のうち
-    マージンを明確に上回るものだけ採用 → 3. END への逸脱だけは end_margin（指定時）を要求。
+    マージンを明確に上回るものだけ採用 → 3. END への逸脱は end_margin、展開手からの
+    離脱は dev_margin を要求（どちらも指定時のみ・両方該当なら大きい方）。
 
     END は唯一「何も生まない」手＝展開してから後で終了しても失うものがほぼ無いのに、
     rollout 地平線の外にある展開の見返りが僅差ノイズで END に負け、ターンが早畳みされて
     行動機会が複利で消えていた（実測: 終了への上書き1.4回/戦）。heuristic 自身が END を
     提案している時は適用しない（選択肢が尽きた正当な終了まで妨げない）。
+
+    dev_margin は §60 で見つかった第二の逸脱への対処: heuristic の展開提案
+    （PLAY＝手札から場に出す／EVOLVE）の採択が25%（上位帯40-50%）しかなく、盤面が育つ前に
+    上書きされていた。展開手も END と同様「後回しにすると機会が複利で消える」種類の手
+    （攻撃はターンを終えるため、展開は攻撃より先にしか打てない）。
+    リスク: リーサル級の即断攻撃を遅らせうるため、マージンは控えめな値から始める。
     """
 
     def mean_value(key: tuple[int, ...]) -> float:
         visits, value_sum = agg[key]
         return value_sum / visits if visits > 0 else 0.0
 
+    def option_type(key: tuple[int, ...]):
+        if len(key) != 1 or not (0 <= key[0] < len(options)):
+            return None
+        return getattr(options[key[0]], "type", None)
+
     def is_end(key: tuple[int, ...]) -> bool:
-        return (
-            len(key) == 1
-            and 0 <= key[0] < len(options)
-            and getattr(options[key[0]], "type", None) == OptionType.END
-        )
+        return option_type(key) == OptionType.END
+
+    def is_dev(key: tuple[int, ...]) -> bool:
+        return option_type(key) in (OptionType.PLAY, OptionType.EVOLVE)
 
     h_is_end = is_end(h_action)
+    h_is_dev = is_dev(h_action)
     best_key = h_action
     best_mean = mean_value(h_action) if h_action in agg else -1.0
     for key, (visits, value_sum) in agg.items():
         if visits < min_visits:
             continue
+        # 逸脱の種類ごとに要求マージンを決める（両方該当する場合は保護の強い方＝大きい方）
         margin = select_margin
         if end_margin is not None and not h_is_end and is_end(key):
-            margin = end_margin
+            margin = max(margin, end_margin)
+        if dev_margin is not None and h_is_dev and not is_dev(key):
+            margin = max(margin, dev_margin)
         m = value_sum / visits
         if m > best_mean + margin:
             best_key, best_mean = key, m

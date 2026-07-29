@@ -98,6 +98,7 @@ def build(
     attach_priors: str | None = None,
     threat_bonus: float = 0.0,
     end_margin: float | None = None,
+    dev_margin: float | None = None,
 ) -> tuple[str, list[str]]:
     """提出パッケージを組み立てて (tar パス, 同梱物一覧) を返す."""
     build_dir = os.path.join(ROOT, "models", "submission")
@@ -119,6 +120,9 @@ def build(
         # END への逸脱に要求する追加マージン（ターン早畳み対策）。
         # policy_kwargs 経由で make_ismcts_agent(end_margin=...) へ素通しされる。
         agent_call += f",\n    end_margin={end_margin}"
+    if policy == "ismcts" and dev_margin is not None:
+        # 展開手（PLAY/EVOLVE）からの逸脱に要求する追加マージン（§60 の第二の逸脱）。
+        agent_call += f",\n    dev_margin={dev_margin}"
     with open(os.path.join(build_dir, "main.py"), "w") as f:
         f.write(MAIN_PY.format(agent_call=agent_call))
     # 我々のモジュールは package ptcgbot/ に入れ、相互 import を名前空間化する
@@ -236,6 +240,13 @@ def main() -> None:
         help="ENDへの逸脱に要求する追加マージン（ismcts のみ・未指定=従来挙動。例 0.15）",
     )
     parser.add_argument(
+        "--dev-margin",
+        type=float,
+        default=None,
+        help="展開手（PLAY/EVOLVE）からの逸脱に要求する追加マージン"
+        "（ismcts のみ・未指定=従来挙動。例 0.10）",
+    )
+    parser.add_argument(
         "--threat-bonus",
         type=float,
         default=0.0,
@@ -265,6 +276,7 @@ def main() -> None:
         attach_priors=args.attach_priors,
         threat_bonus=args.threat_bonus,
         end_margin=args.end_margin,
+        dev_margin=args.dev_margin,
     )
     size_mb = os.path.getsize(out_tar) / 1e6
     print(f"提出パッケージを作成: {out_tar} ({size_mb:.1f} MB・policy={args.policy})")
