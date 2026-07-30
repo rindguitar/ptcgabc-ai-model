@@ -21,7 +21,7 @@ pytest.importorskip("cg.api", reason="cabt Engine (cg) が見つからない")
 
 from agents import _generic_select, make_heuristic_agent  # noqa: E402
 from cards import load_card_meta  # noqa: E402
-from cg.api import CardType, SelectType  # noqa: E402
+from cg.api import CardType, SelectContext, SelectType  # noqa: E402
 from mine_fetch_priorities import _count_search, mine_episode  # noqa: E402
 from submission import _load_fetch_priors  # noqa: E402
 
@@ -49,13 +49,16 @@ def ids(meta):
     return {"basic": basic, "energy": energy, "other": other}
 
 
-def _search_obs(card_ids, max_count=1, min_count=0):
+def _search_obs(
+    card_ids, max_count=1, min_count=0, context=None, supporter_played=False
+):
     """山札サーチ（sel.deck あり）の観測フェイクを組む.
 
     ⚠️ 実データ形状（replay JSON で実測確認済み）: option は cardId を持たず
     area/index/playerIndex/type のみ。実カードは sel.deck[option.index].id で解決する
     （option[i] は deck[i] を指す 1:1 対応にして単純化）。cardId=None を明示し、
     実装が誤って cardId を直読みしないことをテストで保証する。
+    supporterPlayed は State の必須フィールド（§69 のカテゴリ順分岐が読む）。
     """
     deck = [NS(id=c) for c in card_ids]
     opts = [
@@ -64,13 +67,14 @@ def _search_obs(card_ids, max_count=1, min_count=0):
     ]
     sel = NS(
         type=SelectType.CARD,
-        context=None,
+        context=context,
         option=opts,
         minCount=min_count,
         maxCount=max_count,
         deck=deck,
     )
-    return NS(current=NS(yourIndex=0, players=[NS(), NS()]), select=sel)
+    current = NS(yourIndex=0, players=[NS(), NS()], supporterPlayed=supporter_played)
+    return NS(current=current, select=sel)
 
 
 def test_search_without_priors_prefers_energy(meta, ids):
@@ -121,8 +125,53 @@ def test_search_resolves_card_via_deck_index_not_option_cardid(meta, ids):
         NS(index=0, area=None, playerIndex=0, type=0, cardId=None, number=None),
     ]
     sel = NS(type=SelectType.CARD, context=None, option=opts, minCount=0, maxCount=1, deck=deck)
-    obs = NS(current=NS(yourIndex=0, players=[NS(), NS()]), select=sel)
+    current = NS(yourIndex=0, players=[NS(), NS()], supporterPlayed=False)
+    obs = NS(current=current, select=sel)
     assert _generic_select(obs, meta) == [1]  # option[1]->deck[0]=エネ を選ぶ
+
+
+def test_search_prior_zero_is_not_promoted(meta, ids):
+    """取得率 0 の札は tier0 に入れない（§68/§69 で見つかった実害の是正）.
+
+    教師に提示されたのに一度も取られなかった札（率 0.0）を「priors に載っている」
+    だけで最優先していた旧実装では、エネが押しのけられていた。
+    """
+    obs = _search_obs([ids["other"], ids["energy"]])
+    assert _generic_select(obs, meta, {ids["other"]: 0.0}) == [1]  # エネを取る
+    # 率 > 0 なら従来どおり前に出る（回帰ガード）
+    assert _generic_select(obs, meta, {ids["other"]: 0.01}) == [0]
+
+
+def test_search_tohand_before_supporter_prefers_basic(meta, ids):
+    """TO_HAND × サポート未使用: たね > エネ > その他（教師 lift 1.93・§69）."""
+    obs = _search_obs(
+        [ids["other"], ids["energy"], ids["basic"]],
+        max_count=2,
+        context=SelectContext.TO_HAND,
+        supporter_played=False,
+    )
+    assert _generic_select(obs, meta) == sorted([2, 1])  # たね → エネ
+
+
+def test_search_tohand_after_supporter_demotes_basic(meta, ids):
+    """TO_HAND × サポート使用後: エネ > その他 > たね（教師 lift 0.46・§69）."""
+    obs = _search_obs(
+        [ids["basic"], ids["other"], ids["energy"]],
+        max_count=2,
+        context=SelectContext.TO_HAND,
+        supporter_played=True,
+    )
+    assert _generic_select(obs, meta) == sorted([2, 1])  # エネ → その他（たねは最後）
+
+
+def test_search_non_tohand_context_keeps_energy_first(meta, ids):
+    """TO_HAND 以外は分岐しない（採掘バケットが TO_HAND 限定・構造的に無風）."""
+    obs = _search_obs(
+        [ids["other"], ids["energy"], ids["basic"]],
+        context=SelectContext.TO_BENCH,
+        supporter_played=False,
+    )
+    assert _generic_select(obs, meta) == [1]  # エネ
 
 
 def test_count_search_accumulates_taken_and_offered():

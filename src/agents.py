@@ -385,15 +385,21 @@ def _generic_select(
 
     - 数値選択（ドロー枚数など）は最大化。
     - セットアップのベンチ展開は可能な限り並べる。
-    - **山札からの選択（サーチ）は「エネ優先→その他」で maxCount まで取る**。
-      旧実装は最小数（多くは 0 枚）でサーチを無駄撃ちしており、トレーナー活用の妨げだった。
-      たね優先はベンチ切れ（実戦敗因の6〜7割）への直接の対策として導入したが、上位帯
-      replay 実測（§50/§51・局面数136の型混在局面）でむしろ**たねポケモンは他候補との
-      混在時に忌避される**（選好指数 lift=0.46 で明確に低い。トレーナー各種は候補数なりの
-      lift≈1.0＝優先度差なし）と判明したため撤回・たねの特別枠を廃止した。
-    - **fetch_priors（§47）があるサーチでは、教師の取得率が分かる札をその率の降順で
-      カテゴリ順より前に置く**（リサイクル札等のキーカードをサーチで埋没させない・
-      §43 の発火機会＝札の可用性レバー）。未指定なら従来挙動。
+    - **山札からの選択（サーチ）は maxCount まで取る**。旧実装は最小数（多くは 0 枚）で
+      サーチを無駄撃ちしており、トレーナー活用の妨げだった。
+    - **カテゴリ順は TO_HAND のみ `supporterPlayed` で分岐する**（§69）。上位帯実測の
+      選好指数 lift が同じ「たねポケモン」で正反対だったため:
+      サポート未使用（before）は **lift 1.93**（＝これから掘れるので先に場を作る札を取る）、
+      使用後（after）は **lift 0.46**（＝掘り手段が尽きた後はたねを避ける）。
+      → 未使用なら「たね > エネ > その他」・使用後は「エネ > その他 > たね」。
+      §52 は after バケットの知見をサーチ全体へ一般化していた（採掘元の条件へ限定し直す）。
+      TO_HAND 以外（TO_BENCH/ATTACH_TO 等）は構造的に無風なので after 側の順を使う。
+    - **fetch_priors（§47）があるサーチでは、教師が実際に取っている札（取得率 > 0）を
+      その率の降順でカテゴリ順より前に置く**（リサイクル札等のキーカードをサーチで
+      埋没させない・§43 の発火機会＝札の可用性レバー）。未指定なら従来挙動。
+      ⚠️ **取得率 0（提示されたのに教師が一度も取らなかった札）は前に出さない**。
+      「priors に載っているか」だけで判定していた旧実装は、教師が避けた札をエネより
+      上位に置いていた（実戦で 0.2〜0.4 回/戦発火・§68/§69）。
     - **昇格/交代先（TO_ACTIVE/SWITCH）はエネが乗り HP の残る子を優先**（§31。旧実装は
       先頭固定＝KO 後に空のたねを前に出してサイドレースを落としていた）。
     - それ以外は必要最小数を先頭から選ぶ（任意選択は見送る）。
@@ -440,10 +446,8 @@ def _generic_select(
         return list(range(min(sel.maxCount, n)))
 
     if sel.deck is not None and sel.maxCount > 0:
-        # 山札からのサーチ: 1. 教師の取得率が分かる札（fetch_priors）を率の降順 →
-        # 2. 残りは エネルギー > その他（たねポケモン含む） のカテゴリ順、で取れるだけ取る
-        # ⚠️ たねポケモンをエネより優先していた旧実装は§50/§51の実測で撤回（上記docstring）。
-        # エネ優先は上位帯実測でも lift≈1.0（否定されていない）ため維持。
+        # 山札からのサーチ: 1. 教師が実際に取っている札（取得率 > 0）を率の降順 →
+        # 2. 残りはカテゴリ順（TO_HAND は supporterPlayed で分岐・§69）、で取れるだけ取る
         # ⚠️ 山札検索の option は cardId を持たない（area/index/playerIndex/type のみ・
         # 実測確認済み）。実カードは sel.deck[option.index].id で解決する（旧実装は
         # cardId 直読みで常に 0 ＝カテゴリ分岐が機能していなかったバグ）。
@@ -453,16 +457,31 @@ def _generic_select(
                 return 0
             return sel.deck[idx].id or 0
 
-        def rank(i: int) -> tuple[int, float, int]:
-            cid = _search_card_id(i)
-            if fetch_priors and cid in fetch_priors:
-                return (0, -fetch_priors[cid], i)
-            if meta.card_type.get(cid) in (
+        # そのターン既にサポートを使ったか（エンジン公式フラグ）。取れないときは未使用扱い
+        # ＝採掘側 mine_search_role_priors.tohand_bucket と同じ判定にする。
+        supporter_played = bool(obs.current is not None and obs.current.supporterPlayed)
+        basics_first = sel.context == SelectContext.TO_HAND and not supporter_played
+
+        def category_tier(cid: int) -> int:
+            is_energy = meta.card_type.get(cid) in (
                 CardType.BASIC_ENERGY,
                 CardType.SPECIAL_ENERGY,
-            ):
-                return (1, 0.0, i)
-            return (2, 0.0, i)
+            )
+            if basics_first:  # サポート未使用: たね > エネ > その他
+                if meta.is_basic_pokemon(cid):
+                    return 1
+                return 2 if is_energy else 3
+            # サポート使用後（および TO_HAND 以外）: エネ > その他 > たね
+            if is_energy:
+                return 1
+            return 3 if meta.is_basic_pokemon(cid) else 2
+
+        def rank(i: int) -> tuple[int, float, int]:
+            cid = _search_card_id(i)
+            prior = fetch_priors.get(cid) if fetch_priors else None
+            if prior is not None and prior > 0.0:
+                return (0, -prior, i)
+            return (category_tier(cid), 0.0, i)
 
         take = max(sel.minCount, min(sel.maxCount, n))
         return sorted(sorted(range(n), key=rank)[:take])
