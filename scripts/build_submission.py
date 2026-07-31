@@ -99,6 +99,8 @@ def build(
     threat_bonus: float = 0.0,
     end_margin: float | None = None,
     dev_margin: float | None = None,
+    bench_first: bool = False,
+    iters_per_det: int | None = None,
 ) -> tuple[str, list[str]]:
     """提出パッケージを組み立てて (tar パス, 同梱物一覧) を返す."""
     build_dir = os.path.join(ROOT, "models", "submission")
@@ -123,6 +125,13 @@ def build(
     if policy == "ismcts" and dev_margin is not None:
         # 展開手（PLAY/EVOLVE）からの逸脱に要求する追加マージン（§60 の第二の逸脱）。
         agent_call += f",\n    dev_margin={dev_margin}"
+    if policy == "ismcts" and bench_first:
+        # heuristic のたねベンチ展開をエネ付与より前に出す（§72・アンカーと rollout の両方）。
+        agent_call += ",\n    bench_first=True"
+    if policy == "ismcts" and iters_per_det is not None:
+        # determinization 1つあたりの UCT 反復数。下げると det 数（相手デッキ事後分布の
+        # 標本数）が増える（実測: 40→det 8〜11本・15→22本・§72）。
+        agent_call += f",\n    iters_per_det={iters_per_det}"
     with open(os.path.join(build_dir, "main.py"), "w") as f:
         f.write(MAIN_PY.format(agent_call=agent_call))
     # 我々のモジュールは package ptcgbot/ に入れ、相互 import を名前空間化する
@@ -247,6 +256,17 @@ def main() -> None:
         "（ismcts のみ・未指定=従来挙動。例 0.10）",
     )
     parser.add_argument(
+        "--bench-first",
+        action="store_true",
+        help="heuristic のたねベンチ展開をエネ付与より前に出す（ismcts のみ・§72・既定 off）",
+    )
+    parser.add_argument(
+        "--iters-per-det",
+        type=int,
+        default=None,
+        help="determinization 1つあたりの UCT 反復数（ismcts のみ・未指定=既定40。例 15）",
+    )
+    parser.add_argument(
         "--threat-bonus",
         type=float,
         default=0.0,
@@ -277,6 +297,8 @@ def main() -> None:
         threat_bonus=args.threat_bonus,
         end_margin=args.end_margin,
         dev_margin=args.dev_margin,
+        bench_first=args.bench_first,
+        iters_per_det=args.iters_per_det,
     )
     size_mb = os.path.getsize(out_tar) / 1e6
     print(f"提出パッケージを作成: {out_tar} ({size_mb:.1f} MB・policy={args.policy})")

@@ -328,6 +328,7 @@ def make_ismcts_agent(
     opp_pool: list[list[int]] | None = None,
     fetch_priors: dict[int, float] | None = None,
     attach_priors: dict[int, float] | None = None,
+    bench_first: bool = False,
 ) -> Agent:
     """ISMCTS エージェントを生成する.
 
@@ -357,12 +358,17 @@ def make_ismcts_agent(
             rollout 既定方策に効く。未指定なら従来挙動）。
         attach_priors: エネ付与先の切替確率 {アクティブの装着エネ枚数: P(ベンチ付与)}
             （mine_attach_policy.py の帯実測。未指定なら従来挙動＝アクティブ優先）。
+        bench_first: heuristic のたねベンチ展開をエネ付与より前に出す（§72・既定 False）。
+            アンカーと rollout 方策の両方に効く。
 
     行動選択は**ヒューリスティックをアンカー**にし、MCTS が十分な訪問数かつ
     明確なマージンで上回ったときだけ逸脱する（信号が弱い低予算では heuristic に一致＝劣化しない）。
     """
     heuristic = make_heuristic_agent(
-        meta, fetch_priors=fetch_priors, attach_priors=attach_priors
+        meta,
+        fetch_priors=fetch_priors,
+        attach_priors=attach_priors,
+        bench_first=bench_first,
     )
     policy = rollout_policy or heuristic
     # 試合をまたいで持つクロック状態（elapsed=この試合で使った思考秒, last_turn=直近のターン番号）

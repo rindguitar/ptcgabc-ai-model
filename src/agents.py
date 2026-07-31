@@ -55,6 +55,7 @@ def make_heuristic_agent(
     use_trainers: bool = True,
     fetch_priors: dict[int, float] | None = None,
     attach_priors: dict[int, float] | None = None,
+    bench_first: bool = False,
 ) -> Agent:
     """貪欲ヒューリスティックエージェントを生成する.
 
@@ -73,12 +74,18 @@ def make_heuristic_agent(
     （mine_attach_policy.py の帯実測）。上位帯はアーキタイプ不問でベンチへ 4〜5回/戦
     エネを回す（我々1.2回）のが最普遍の操縦差で、アクティブ KO＝全エネ喪失の
     ワンサイド負け（敗時サイド0〜1）の根因だった。未指定なら従来挙動（アクティブ優先）。
+
+    bench_first: True でエネ付与より**たねのベンチ展開を先**にする（§72）。不利な相手
+    （型 F0/F4）との戦いで自ベンチ数が @10決定 1.85 vs 2.62 と序盤に育っていなかった実測
+    への対処。既定 False＝挙動不変。
     """
 
     def heuristic_agent(obs: Observation, rng: random.Random) -> list[int]:
         sel = obs.select
         if sel.type == SelectType.MAIN:
-            return [_choose_main(obs, meta, rng, use_trainers, attach_priors)]
+            return [
+                _choose_main(obs, meta, rng, use_trainers, attach_priors, bench_first)
+            ]
         if sel.type == SelectType.ATTACK:
             return [_argmax_damage(sel.option, meta)]
         return _generic_select(obs, meta, fetch_priors)
@@ -92,6 +99,7 @@ def _choose_main(
     rng: random.Random,
     use_trainers: bool = True,
     attach_priors: dict[int, float] | None = None,
+    bench_first: bool = False,
 ) -> int:
     """MAIN 選択での貪欲な行動選択."""
     opts = obs.select.option
@@ -141,6 +149,17 @@ def _choose_main(
     if use_trainers and OptionType.TOOL_CARD in by_type:
         return rng.choice(by_type[OptionType.TOOL_CARD])
 
+    # 3./4. エネ付与とベンチ展開。bench_first=True なら順序を入れ替える（§72）:
+    #    盤面が薄いまま殴り合いに入ると後続が立たない——不利な型との戦いで自ベンチ数が
+    #    序盤（@10決定）だけ 1.85 vs 2.62 と負けていた実測への対処。既定は従来順。
+    play_basic = [
+        i
+        for i in by_type.get(OptionType.PLAY, [])
+        if _is_basic_pokemon_play(opts[i], obs, meta)
+    ]
+    if bench_first and play_basic:
+        return rng.choice(play_basic)
+
     # 3. エネルギー付与: 既定はアクティブ優先（殴れる状態に近づける）。attach_priors が
     #    あれば上位帯の実測 P(ベンチ付与|アクティブの装着エネ枚数) に従って確率的にベンチの
     #    次アタッカーへ回す（帯共通の型: 空でも49%・2枚以上なら~80%がベンチ行き。
@@ -157,12 +176,7 @@ def _choose_main(
                 return _pick_bench_attach(to_bench, opts, st, meta)
         return rng.choice(to_active or attach)
 
-    # 4. 手札のたねポケモンをベンチ展開
-    play_basic = [
-        i
-        for i in by_type.get(OptionType.PLAY, [])
-        if _is_basic_pokemon_play(opts[i], obs, meta)
-    ]
+    # 4. 手札のたねポケモンをベンチ展開（bench_first なら上で消化済み）
     if play_basic:
         return rng.choice(play_basic)
 
