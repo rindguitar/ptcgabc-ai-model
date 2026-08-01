@@ -97,6 +97,10 @@ class CardMeta:
     # 山札リサイクル札（トラッシュ→山に戻す）。EFFECT_CATEGORIES には足さない
     # （特徴量次元が変わり既存 net が全滅するため）＝独立フィールド（§39）
     is_deck_recycle: dict[int, bool]
+    # 自分のアクティブをベンチへ下げる札（入替系）。相手を引きずり出す札と区別する必要が
+    # あるため「switch かつ your active」で判定する。EFFECT_CATEGORIES には足さない
+    # （特徴量次元を変えない＝§39 と同じ独立フィールド扱い・§80）
+    is_self_switch: dict[int, bool]
     # --- 脅威推定（§48）用: ワザの必要エネ数とカード→ワザ対応（独立フィールド＝特徴量不変）---
     attack_cost: dict[int, int]  # attackId -> 必要エネ数（色は数えない・枚数のみ）
     card_attacks: dict[int, list[int]]  # cardId -> attackId のリスト
@@ -140,6 +144,7 @@ def load_card_meta() -> CardMeta:
     prize_value: dict[int, int] = {}
     is_tera: dict[int, bool] = {}
     is_deck_recycle: dict[int, bool] = {}
+    is_self_switch: dict[int, bool] = {}
     card_attacks: dict[int, list[int]] = {}
     for c in cards:
         cid = c["cardId"]
@@ -170,6 +175,13 @@ def load_card_meta() -> CardMeta:
         # （足すと特徴量次元が変わり既存 net が全滅する）ため独立フィールドで持つ（§39）。
         is_deck_recycle[cid] = any(
             "discard pile into your deck" in t for t in texts_l
+        )
+        # 自分のアクティブを下げる入替札（§80）: 「switch」かつ「your active」を含む効果。
+        # 相手のベンチを引きずり出す札も「switch」を含むので、対象語で切り分ける。
+        # **ポケモンは除外**する: ポケモンの同種テキストは特性（ABILITY で起動）であって、
+        # 手札から PLAY しても入れ替わらない＝退避手段として使えない（実測で6種が該当）。
+        is_self_switch[cid] = ctype != CardType.POKEMON and any(
+            "switch" in t and "your active" in t for t in texts_l
         )
         # 構造メタ（KO/相性計算用・タイプは色コード int、無しは -1）
         pokemon_type[cid] = (
@@ -208,6 +220,7 @@ def load_card_meta() -> CardMeta:
         prize_value=prize_value,
         is_tera=is_tera,
         is_deck_recycle=is_deck_recycle,
+        is_self_switch=is_self_switch,
         attack_cost=cost,
         card_attacks=card_attacks,
     )

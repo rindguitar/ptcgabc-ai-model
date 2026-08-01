@@ -56,6 +56,7 @@ def make_heuristic_agent(
     fetch_priors: dict[int, float] | None = None,
     attach_priors: dict[int, float] | None = None,
     bench_first: bool = False,
+    evacuate_prize: float | None = None,
 ) -> Agent:
     """貪欲ヒューリスティックエージェントを生成する.
 
@@ -78,13 +79,26 @@ def make_heuristic_agent(
     bench_first: True でエネ付与より**たねのベンチ展開を先**にする（§72）。不利な相手
     （型 F0/F4）との戦いで自ベンチ数が @10決定 1.85 vs 2.62 と序盤に育っていなかった実測
     への対処。既定 False＝挙動不変。
+
+    evacuate_prize: 指定すると「2サイド以上取られるアクティブ」を KO 脅威（§48）が
+    この閾値以上のときに退避させる（入替札→にげるの順・§80）。実測では 3サイドの
+    ドローエンジンがアクティブで 0.58回/戦 KO され献上サイドの 61% を占めていた。
+    未指定なら退避しない＝挙動不変。
     """
 
     def heuristic_agent(obs: Observation, rng: random.Random) -> list[int]:
         sel = obs.select
         if sel.type == SelectType.MAIN:
             return [
-                _choose_main(obs, meta, rng, use_trainers, attach_priors, bench_first)
+                _choose_main(
+                    obs,
+                    meta,
+                    rng,
+                    use_trainers,
+                    attach_priors,
+                    bench_first,
+                    evacuate_prize,
+                )
             ]
         if sel.type == SelectType.ATTACK:
             return [_argmax_damage(sel.option, meta)]
@@ -100,6 +114,7 @@ def _choose_main(
     use_trainers: bool = True,
     attach_priors: dict[int, float] | None = None,
     bench_first: bool = False,
+    evacuate_prize: float | None = None,
 ) -> int:
     """MAIN 選択での貪欲な行動選択."""
     opts = obs.select.option
@@ -140,6 +155,16 @@ def _choose_main(
         abilities = by_type.get(OptionType.ABILITY, [])
         if abilities:
             return rng.choice(abilities)
+
+    # 0.6 高prize退避（§80）: サイドを2枚以上取られる札がアクティブに居て、相手の場から
+    #     次に落とされうるなら下がる。実測（226戦）では 3サイドのドローエンジンが
+    #     アクティブで 0.58回/戦 KO され、献上サイドの 61% を占めていた。
+    #     手段は ①自分のアクティブを下げる入替札（エネ不要）→ ②にげる の順。
+    #     ただし今このターンに相手アクティブを倒せるなら攻撃を優先する（リーサル）。
+    if evacuate_prize is not None and st is not None:
+        ev = _find_evacuation(obs, meta, by_type, opts, evacuate_prize)
+        if ev is not None:
+            return ev
 
     # 1. 進化（基本的に得）
     if OptionType.EVOLVE in by_type:
@@ -383,6 +408,64 @@ def _pick_bench_attach(indices: list[int], opts, st, meta: CardMeta) -> int:
 def _argmax_damage(opts, meta: CardMeta) -> int:
     """ATTACK オプション列の中で最大ダメージのインデックス."""
     return max(range(len(opts)), key=lambda i: meta.attack_damage(opts[i].attackId))
+
+
+def _find_evacuation(
+    obs: Observation,
+    meta: CardMeta,
+    by_type: dict[int, list[int]],
+    opts,
+    threshold: float,
+) -> int | None:
+    """高prize のアクティブを退避させる option index を返す（不要なら None）.
+
+    判定の流れ: 1. アクティブが 2サイド以上の札か → 2. ベンチに交代先が居るか →
+    3. 相手の場からの KO 脅威（§48 ko_threat）が閾値以上か → 4. こちらが相手アクティブを
+    今倒せるなら攻撃を優先（退避しない）→ 5. 入替札（エネ不要）→ にげる の順で手段を返す。
+    """
+    st = obs.current
+    if st is None:
+        return None
+    me = st.players[st.yourIndex]
+    opp = st.players[1 - st.yourIndex]
+    active = (me.active or [None])[0]
+    if active is None:
+        return None
+    # 1. 守る価値（取られるサイド枚数）が無いなら何もしない
+    if meta.prize_value.get(active.id, 1) < 2:
+        return None
+    # 2. 交代先が居なければ退避できない
+    if not [p for p in (me.bench or []) if p is not None]:
+        return None
+    # 3. 相手の場からの KO 脅威（0〜1）が閾値未満なら急がない
+    if ko_threat(opp, me, meta) < threshold:
+        return None
+    # 4. リーサル優先: 今の攻撃で相手アクティブを落とせるなら退避しない
+    opp_active = (opp.active or [None])[0]
+    if opp_active is not None and OptionType.ATTACK in by_type:
+        best = max(
+            (meta.attack_damage(opts[i].attackId) for i in by_type[OptionType.ATTACK]),
+            default=0,
+        )
+        if best >= (opp_active.hp or 0):
+            return None
+    # 5. 手段: 入替札（エネを失わない）→ にげる（コスト分のエネを失う）
+    switches = [
+        i
+        for i in by_type.get(OptionType.PLAY, [])
+        if _is_self_switch_play(opts[i], obs, meta)
+    ]
+    if switches:
+        return switches[0]
+    if OptionType.RETREAT in by_type:
+        return by_type[OptionType.RETREAT][0]
+    return None
+
+
+def _is_self_switch_play(opt, obs: Observation, meta: CardMeta) -> bool:
+    """PLAY が「自分のアクティブをベンチへ下げる」入替札か（§80）."""
+    cid = _hand_card_id(opt, obs)
+    return cid is not None and meta.is_self_switch.get(cid, False)
 
 
 def _argmax_damage_indices(indices: list[int], opts, meta: CardMeta) -> int:
