@@ -102,6 +102,7 @@ def build(
     bench_first: bool = False,
     iters_per_det: int | None = None,
     evacuate_prize: float | None = None,
+    fix_switch_target: bool = False,
 ) -> tuple[str, list[str]]:
     """提出パッケージを組み立てて (tar パス, 同梱物一覧) を返す."""
     build_dir = os.path.join(ROOT, "models", "submission")
@@ -136,6 +137,9 @@ def build(
     if policy == "ismcts" and evacuate_prize is not None:
         # 2サイド以上のアクティブを KO 脅威が閾値以上のとき退避させる（§80・入替札→にげる）。
         agent_call += f",\n    evacuate_prize={evacuate_prize}"
+    if policy == "ismcts" and fix_switch_target:
+        # 引きずり出し（SWITCH の相手指定）を相手の場として解決するバグ修正（§79）。
+        agent_call += ",\n    fix_switch_target=True"
     with open(os.path.join(build_dir, "main.py"), "w") as f:
         f.write(MAIN_PY.format(agent_call=agent_call))
     # 我々のモジュールは package ptcgbot/ に入れ、相互 import を名前空間化する
@@ -278,6 +282,12 @@ def main() -> None:
         "（ismcts のみ・§80・未指定=退避しない。例 0.5）",
     )
     parser.add_argument(
+        "--fix-switch-target",
+        action="store_true",
+        help="引きずり出し（SWITCH の相手指定）を相手の場として解決し、サイド最大の個体を"
+        "選ぶ（ismcts のみ・§79 のバグ修正・既定 off＝A/B のため）",
+    )
+    parser.add_argument(
         "--threat-bonus",
         type=float,
         default=0.0,
@@ -311,6 +321,7 @@ def main() -> None:
         bench_first=args.bench_first,
         iters_per_det=args.iters_per_det,
         evacuate_prize=args.evacuate_prize,
+        fix_switch_target=args.fix_switch_target,
     )
     size_mb = os.path.getsize(out_tar) / 1e6
     print(f"提出パッケージを作成: {out_tar} ({size_mb:.1f} MB・policy={args.policy})")

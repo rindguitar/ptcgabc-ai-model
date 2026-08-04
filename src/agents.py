@@ -57,6 +57,7 @@ def make_heuristic_agent(
     attach_priors: dict[int, float] | None = None,
     bench_first: bool = False,
     evacuate_prize: float | None = None,
+    fix_switch_target: bool = False,
 ) -> Agent:
     """貪欲ヒューリスティックエージェントを生成する.
 
@@ -84,6 +85,12 @@ def make_heuristic_agent(
     この閾値以上のときに退避させる（入替札→にげるの順・§80）。実測では 3サイドの
     ドローエンジンがアクティブで 0.58回/戦 KO され献上サイドの 61% を占めていた。
     未指定なら退避しない＝挙動不変。
+
+    fix_switch_target: True で `SWITCH` の相手指定バグを修正する（§79）。旧実装は
+    引きずり出し（playerIndex が相手）の候補も自分のベンチとして解決していたため、
+    自分のエネ数で相手を順位付け＝実質先頭取りになっていた（0.48回/戦）。
+    修正後は相手の場から**取れるサイドが最大**の個体を選ぶ（上位帯基準・§80）。
+    既定 False＝挙動不変。
     """
 
     def heuristic_agent(obs: Observation, rng: random.Random) -> list[int]:
@@ -102,7 +109,7 @@ def make_heuristic_agent(
             ]
         if sel.type == SelectType.ATTACK:
             return [_argmax_damage(sel.option, meta)]
-        return _generic_select(obs, meta, fetch_priors)
+        return _generic_select(obs, meta, fetch_priors, fix_switch_target)
 
     return heuristic_agent
 
@@ -477,6 +484,7 @@ def _generic_select(
     obs: Observation,
     meta: CardMeta,
     fetch_priors: dict[int, float] | None = None,
+    fix_switch_target: bool = False,
 ) -> list[int]:
     """MAIN/ATTACK 以外のサブ選択を無難に処理する.
 
@@ -499,6 +507,8 @@ def _generic_select(
       上位に置いていた（実戦で 0.2〜0.4 回/戦発火・§68/§69）。
     - **昇格/交代先（TO_ACTIVE/SWITCH）はエネが乗り HP の残る子を優先**（§31。旧実装は
       先頭固定＝KO 後に空のたねを前に出してサイドレースを落としていた）。
+    - `fix_switch_target=True` で **相手を引きずり出す候補（playerIndex が相手）を相手の
+      ベンチとして解決**し、取れるサイドが最大の個体を選ぶ（§79 のバグ修正・既定 off）。
     - それ以外は必要最小数を先頭から選ぶ（任意選択は見送る）。
     """
     sel = obs.select
@@ -513,13 +523,26 @@ def _generic_select(
     if sel.context in (SelectContext.TO_ACTIVE, SelectContext.SWITCH):
         st = obs.current
         me = st.players[st.yourIndex] if st is not None else None
+        opp = st.players[1 - st.yourIndex] if st is not None else None
 
         def promo_score(i: int) -> tuple[int, int, int]:
+            # 流れ: 1. 候補が自分/相手どちらの場を指すか決める → 2. その場のベンチから
+            # 個体を解決する → 3. 自分なら「育っている子」・相手なら「重い子」で順位付け。
             # エンジン実測: TO_ACTIVE の option は inPlayArea/inPlayIndex が None で、
             # `index` がベンチ位置を指す。inPlayIndex 形式にも防御的に対応する。
             o = sel.option[i]
             pk = None
-            bench = (me.bench or []) if me is not None else []
+            # 1. 所有者の解決（§79）: SWITCH には相手のベンチを指す候補（引きずり出し）が
+            #    混ざる（実測 0.48回/戦）。旧実装は playerIndex を見ず全て自分の場として
+            #    解決し、自分のベンチのエネ数で相手を順位付けていた（＝実質先頭取り）。
+            is_opp = (
+                fix_switch_target
+                and st is not None
+                and o.playerIndex is not None
+                and o.playerIndex != st.yourIndex
+            )
+            owner = opp if is_opp else me
+            bench = (owner.bench or []) if owner is not None else []
             if (
                 o.inPlayArea == AreaType.BENCH
                 and o.inPlayIndex is not None
@@ -530,6 +553,11 @@ def _generic_select(
                 pk = bench[o.index]
             if pk is None:  # 解決できない選択肢は従来順（末尾寄せ）
                 return (-1, -1, -i)
+            # 3. 相手を引きずり出す時は基準が反転する: 上位帯は**取れるサイドが最大**の個体を
+            #    引きずり出す（ランダム比 +0.239・§79/§80）。同値なら残 HP の少ない方＝
+            #    倒し切りやすい方を選ぶ。自分の場は従来どおり「エネが乗り HP の残る子」。
+            if is_opp:
+                return (meta.prize_value.get(pk.id, 1), -(pk.hp or 0), -i)
             return (len(pk.energyCards or []), pk.hp or 0, -i)
 
         take = min(n, max(sel.minCount, 1))
