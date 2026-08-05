@@ -101,3 +101,16 @@ def test_make_ismcts_agent_accepts_dev_margin():
         assert all(0 <= i < len(sel.option) for i in action)
     finally:
         battle_finish()
+
+
+def test_select_margin_raise_suppresses_weak_departure():
+    """select_margin を上げると弱い逸脱（+0.08〜+0.28 帯・§72）が抑えられる（§90）."""
+    agg = {(0,): [20, 10.0], (1,): [20, 11.6]}  # mean 0.50 vs 0.58（差 0.08）
+    assert _select_action(agg, (0,), OPTS, 15, 0.05) == [1]  # 既定 0.05 では逸脱
+    assert _select_action(agg, (0,), OPTS, 15, 0.20) == [0]  # 0.20 では heuristic 維持
+
+
+def test_select_margin_raise_keeps_strong_departure():
+    """確信の強い逸脱（差 +0.30）は select_margin 0.20 でも通す."""
+    agg = {(0,): [20, 10.0], (1,): [20, 16.0]}  # mean 0.50 vs 0.80（差 0.30）
+    assert _select_action(agg, (0,), OPTS, 15, 0.20) == [1]

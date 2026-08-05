@@ -103,6 +103,8 @@ def build(
     iters_per_det: int | None = None,
     evacuate_prize: float | None = None,
     fix_switch_target: bool = False,
+    setup_active_rule: bool = False,
+    select_margin: float | None = None,
 ) -> tuple[str, list[str]]:
     """提出パッケージを組み立てて (tar パス, 同梱物一覧) を返す."""
     build_dir = os.path.join(ROOT, "models", "submission")
@@ -140,6 +142,12 @@ def build(
     if policy == "ismcts" and fix_switch_target:
         # 引きずり出し（SWITCH の相手指定）を相手の場として解決するバグ修正（§79）。
         agent_call += ",\n    fix_switch_target=True"
+    if policy == "ismcts" and setup_active_rule:
+        # 開幕アクティブを帯基準で選ぶ（§89・特性持ち/重い札を前に置かない）。
+        agent_call += ",\n    setup_active_rule=True"
+    if policy == "ismcts" and select_margin is not None:
+        # heuristic の手を上回ったとみなす価値差（既定 0.05）。上げるほど探索の逸脱を抑える。
+        agent_call += f",\n    select_margin={select_margin}"
     with open(os.path.join(build_dir, "main.py"), "w") as f:
         f.write(MAIN_PY.format(agent_call=agent_call))
     # 我々のモジュールは package ptcgbot/ に入れ、相互 import を名前空間化する
@@ -288,6 +296,17 @@ def main() -> None:
         "選ぶ（ismcts のみ・§79 のバグ修正・既定 off＝A/B のため）",
     )
     parser.add_argument(
+        "--setup-active-rule",
+        action="store_true",
+        help="開幕アクティブを帯基準で選ぶ（特性なし→サイド小→HP大・ismcts のみ・§89・既定 off）",
+    )
+    parser.add_argument(
+        "--select-margin",
+        type=float,
+        default=None,
+        help="探索が heuristic を上回ったとみなす価値差（ismcts のみ・未指定=既定0.05。例 0.20）",
+    )
+    parser.add_argument(
         "--threat-bonus",
         type=float,
         default=0.0,
@@ -322,6 +341,8 @@ def main() -> None:
         iters_per_det=args.iters_per_det,
         evacuate_prize=args.evacuate_prize,
         fix_switch_target=args.fix_switch_target,
+        setup_active_rule=args.setup_active_rule,
+        select_margin=args.select_margin,
     )
     size_mb = os.path.getsize(out_tar) / 1e6
     print(f"提出パッケージを作成: {out_tar} ({size_mb:.1f} MB・policy={args.policy})")

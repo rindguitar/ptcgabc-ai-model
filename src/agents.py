@@ -58,6 +58,7 @@ def make_heuristic_agent(
     bench_first: bool = False,
     evacuate_prize: float | None = None,
     fix_switch_target: bool = False,
+    setup_active_rule: bool = False,
 ) -> Agent:
     """貪欲ヒューリスティックエージェントを生成する.
 
@@ -91,6 +92,10 @@ def make_heuristic_agent(
     自分のエネ数で相手を順位付け＝実質先頭取りになっていた（0.48回/戦）。
     修正後は相手の場から**取れるサイドが最大**の個体を選ぶ（上位帯基準・§80）。
     既定 False＝挙動不変。
+
+    setup_active_rule: True で開幕アクティブ（SETUP_ACTIVE_POKEMON）を帯基準で選ぶ（§89）。
+    旧実装は先頭取り（先頭率 1.000）で、40 局面中 19 が3サイド札の開幕だった。
+    既定 False＝挙動不変。
     """
 
     def heuristic_agent(obs: Observation, rng: random.Random) -> list[int]:
@@ -109,7 +114,9 @@ def make_heuristic_agent(
             ]
         if sel.type == SelectType.ATTACK:
             return [_argmax_damage(sel.option, meta)]
-        return _generic_select(obs, meta, fetch_priors, fix_switch_target)
+        return _generic_select(
+            obs, meta, fetch_priors, fix_switch_target, setup_active_rule
+        )
 
     return heuristic_agent
 
@@ -485,6 +492,7 @@ def _generic_select(
     meta: CardMeta,
     fetch_priors: dict[int, float] | None = None,
     fix_switch_target: bool = False,
+    setup_active_rule: bool = False,
 ) -> list[int]:
     """MAIN/ATTACK 以外のサブ選択を無難に処理する.
 
@@ -509,6 +517,7 @@ def _generic_select(
       先頭固定＝KO 後に空のたねを前に出してサイドレースを落としていた）。
     - `fix_switch_target=True` で **相手を引きずり出す候補（playerIndex が相手）を相手の
       ベンチとして解決**し、取れるサイドが最大の個体を選ぶ（§79 のバグ修正・既定 off）。
+    - `setup_active_rule=True` で **開幕アクティブに特性持ち/重い札を置かない**（§89・既定 off）。
     - それ以外は必要最小数を先頭から選ぶ（任意選択は見送る）。
     """
     sel = obs.select
@@ -569,6 +578,28 @@ def _generic_select(
 
     if sel.context == SelectContext.SETUP_BENCH_POKEMON:
         return list(range(min(sel.maxCount, n)))
+
+    if setup_active_rule and sel.context == SelectContext.SETUP_ACTIVE_POKEMON:
+        # 開幕アクティブ（§89）: 上位帯は**特性持ちを前に置かない**（差が付く局面で
+        # 特性持ちを選ぶ率 0.260 vs ランダム基準 0.475・n=192）。開幕札のサイド枚数も
+        # 帯は {1:320, 2:41, 3:6} と 1 に偏る（我々は 40 局面中 19 が3サイド札だった）。
+        # 順位: 1. 特性なし → 2. 取られるサイドが少ない → 3. HP が高い → 4. 元の順。
+        st = obs.current
+        hand = (st.players[st.yourIndex].hand or []) if st is not None else []
+
+        def setup_score(i: int) -> tuple[int, int, int, int]:
+            idx = sel.option[i].index
+            if idx is None or idx >= len(hand) or hand[idx] is None:
+                return (1, 9, 0, i)  # 解決できない候補は後回し
+            cid = hand[idx].id
+            return (
+                int(meta.has_ability.get(cid, False)),
+                meta.prize_value.get(cid, 1),
+                -(meta.hp.get(cid, 0)),
+                i,
+            )
+
+        return [min(range(n), key=setup_score)]
 
     if sel.deck is not None and sel.maxCount > 0:
         # 山札からのサーチ: 1. 教師が実際に取っている札（取得率 > 0）を率の降順 →

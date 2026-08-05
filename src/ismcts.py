@@ -331,6 +331,7 @@ def make_ismcts_agent(
     bench_first: bool = False,
     evacuate_prize: float | None = None,
     fix_switch_target: bool = False,
+    setup_active_rule: bool = False,
 ) -> Agent:
     """ISMCTS エージェントを生成する.
 
@@ -366,6 +367,8 @@ def make_ismcts_agent(
             （入替札→にげる・§80）。アンカーと rollout の両方に効く。未指定なら挙動不変。
         fix_switch_target: `SWITCH` の相手指定バグを修正する（§79・既定 False）。
             サブ選択の即決と rollout 方策の両方に効く。
+        setup_active_rule: 開幕アクティブを帯基準（特性なし→サイド小→HP大）で選ぶ
+            （§89・既定 False）。
 
     行動選択は**ヒューリスティックをアンカー**にし、MCTS が十分な訪問数かつ
     明確なマージンで上回ったときだけ逸脱する（信号が弱い低予算では heuristic に一致＝劣化しない）。
@@ -377,6 +380,7 @@ def make_ismcts_agent(
         bench_first=bench_first,
         evacuate_prize=evacuate_prize,
         fix_switch_target=fix_switch_target,
+        setup_active_rule=setup_active_rule,
     )
     policy = rollout_policy or heuristic
     # 試合をまたいで持つクロック状態（elapsed=この試合で使った思考秒, last_turn=直近のターン番号）
