@@ -1,20 +1,31 @@
 # ptcgabc-ai-model
 
-Kaggle「The Pokémon Company - PTCG AI Battle Challenge Strategy」向けの
-AIモデル開発リポジトリ（**非公開**）。
+Kaggle「The Pokémon Company - PTCG AI Battle Challenge Strategy」（Simulation division）
+に向けて開発したポケモンカード対戦 AI のリポジトリ。競技終了に伴い **MIT ライセンスで公開**。
 
-## 規約上の重要な遵守事項
+ISMCTS / floored NN-MCTS（操縦）× league・ネットデッキ（デッキ）× リーダーボード分析の
+3軸で構成されている。設計判断の全記録は [docs/learning/decisions.md](docs/learning/decisions.md)（§1〜§91）、
+用語は [docs/learning/glossary.md](docs/learning/glossary.md) にある。
 
-本リポジトリは [公式ルール](https://www.kaggle.com/competitions/pokemon-tcg-ai-battle-challenge-strategy/rules) に基づき運用する。特に:
+## ライセンス
 
-- **Competition Data は再配布禁止**（Sec. 2.4）。参加者以外がアクセスできる場所に
-  置かないこと。本リポジトリは**非公開**で運用し、`data/` 配下は `.gitignore` 済み。
-- **競技終了後は Competition Data を速やかに削除**する義務がある（Sec. 2.4)。
-- **Pokémon Elements**（カード名・画像・ルール・データ等）はコミット/公開しない（Sec. 2.5 / 3.18)。
-- 私的なコード共有はチーム外では禁止（Sec. 3.6)。公開する場合は Kaggle フォーラムで OSI 承認ライセンス下に行う。
-- 受賞時は学習/推論コードを **MIT ライセンス**で提供する義務がある（Competition-Specific: Winner License = MIT, Sec. 2.8）。
+[MIT License](LICENSE)。競技規約（Competition-Specific: Winner License = MIT, Sec. 2.8）に沿う。
 
-> データ・モデル等の生成物は `data/` `models/` に置く。これらは Git 追跡対象外。
+## このリポジトリに「入っていない」もの（規約上の制約）
+
+本リポジトリは [公式ルール](https://www.kaggle.com/competitions/pokemon-tcg-ai-battle-challenge-strategy/rules)
+に基づき、以下を**意図的に含めていない**。クローンしてもそのままでは動かない点に注意:
+
+- **cabt Engine**（`src/cg/`）と **カードデータ・デッキ CSV**（`data/`）＝ Competition Data。
+  再配布禁止（Sec. 2.4）のため追跡外で、競技終了後に削除する義務がある。
+  コードは `from cg.api import ...` で参照するだけで、エンジン本体は同梱していない。
+- **Pokémon Elements**（カード名・ワザ名・効果文・デッキ内容・画像）はコード・コミット・
+  ドキュメントのいずれにも書いていない（Sec. 2.5 / 3.18）。カードの参照は
+  **`cardId`・数値・カテゴリ**まで（例: `id756`・`prize_value=3`）で統一している。
+- **学習済みモデル・replay JSON**（`models/` `data/replays/`）も追跡外。
+- ドキュメント中の他参加者は **TeamA〜TeamR に匿名化**してある（分析の数値・知見はそのまま）。
+
+> 生成物は `data/` `models/` に置く。これらは Git 追跡対象外。
 
 ## ディレクトリ構成
 
@@ -26,7 +37,7 @@ AIモデル開発リポジトリ（**非公開**）。
 ├── tests/       # テスト
 ├── data/        # 競技データ（Git 追跡外・終了後に削除）
 ├── models/      # 学習済みモデル（Git 追跡外）
-└── docs/        # ルール等のドキュメント
+└── docs/        # 設計判断ログ・用語集・学習ノート
 ```
 
 ## 環境構築

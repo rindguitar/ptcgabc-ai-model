@@ -17,8 +17,12 @@
 ## プロジェクト概要
 
 Kaggle「The Pokémon Company - PTCG AI Battle Challenge Strategy」（Simulation division）向け
-ポケモンカード対戦 AI の**非公開**リポジトリ。ISMCTS / floored NN-MCTS（操縦）×
-league/ネットデッキ（デッキ）×リーダーボード諜報（§33）の3軸で賞金圏を狙う。
+ポケモンカード対戦 AI のリポジトリ。ISMCTS / floored NN-MCTS（操縦）×
+league/ネットデッキ（デッキ）×リーダーボード諜報（§33）の3軸で賞金圏を狙った。
+
+**競技終了により MIT ライセンスで公開済み**（2026-08-16）。Competition Data（`data/` `src/cg/`）は
+追跡外かつ削除対象、Pokémon Elements と他参加者名は履歴を含めて除去済み（§92）。
+以下の規約はそのまま有効なので、公開後の編集でも遵守すること。
 
 ### 環境の制約（コードから読み取れない事実のみ）
 - Python 3.12・WSL2 Ubuntu。ホスト venv は cabt が標準ライブラリで動く前提（日常開発は CPU）
