@@ -3,20 +3,31 @@
 このファイルは Claude Code がこのリポジトリで作業する際のガイド。
 **薄く保つこと。** 詳細は `docs/` と `.claude/rules/` に置き、必要時のみ参照する（末尾「参照ドキュメント」）。
 
-## ⚠️ 規約（ハード遵守・Sec 2.4/2.6/3.6/3.18.f）
+## ⚠️ 規約（ハード遵守）
 
-- `data/`（Competition Data）と `src/cg/`（エンジン）は**コミット・出力・公開禁止**
+> 条項は**名称で引く**（番号では引かない）。番号は competition ごとに異なり、
+> 本プロジェクトが手元に保存していた条文は Strategy 側のものだったため、
+> Simulation 側の番号と一致する保証がない。実際の番号は競技のルールページで確認する。
+
+- **Competition Data の使用制限条項**（再配布禁止・競技終了後の削除義務）:
+  `data/`（Competition Data）と `src/cg/`（エンジン）は**コミット・出力・公開禁止**
   （.gitignore 済み・競技終了後に削除。リポジトリ自体の削除義務はない）。
-- **Pokémon Elements（カード名・ワザ名・効果文・デッキ内容・画像）をコード/コミット/issue/
-  ログ/会話に貼らない**。参照はカード ID・数値・カテゴリまで。テストもダミー値を使う。
-- 効果文等の**ローカルでの学習利用は許諾の範囲内**（禁止は公開・再配布のみ）。
-- コード共有はチーム外禁止。公開は Kaggle フォーラム＋OSI ライセンス経由のみ。
-  External Data/モデルは全参加者が無償アクセス可能なもの限定。受賞時は MIT 提供義務
+- **Pokémon Elements の公開禁止条項**: カード名・ワザ名・効果文・デッキ内容・画像を
+  コード/コミット/issue/ログ/会話に**貼らない**。参照はカード ID・数値・カテゴリまで。
+  テストもダミー値を使う。
+- **Competition Data の使用許諾範囲**: 効果文等の**ローカルでの学習/推論利用は許諾の範囲内**
+  （禁止されているのは公開・再配布のみ）。
+- **コード共有の条項**: 私的なコード共有はチーム外禁止。公開は競技のディスカッションフォーラム
+  （または競技に紐づく Notebook）経由のみで、公開した時点で OSI 承認ライセンス下に
+  ライセンスしたとみなされる。
+- **External Data の条項**: 全参加者が無償でアクセスできるものに限定。
+- **受賞者の義務条項**: 受賞時は学習/推論コードを MIT で提供する義務
   （OSI 非互換の依存を入れない）。
 
 ## プロジェクト概要
 
-Kaggle「The Pokémon Company - PTCG AI Battle Challenge Strategy」（Simulation division）向け
+Kaggle「The Pokémon Company - PTCG AI Battle Challenge **Simulation**」
+（<https://www.kaggle.com/competitions/pokemon-tcg-ai-battle>）向け
 ポケモンカード対戦 AI のリポジトリ。ISMCTS / floored NN-MCTS（操縦）×
 league/ネットデッキ（デッキ）×リーダーボード諜報（§33）の3軸で賞金圏を狙った。
 

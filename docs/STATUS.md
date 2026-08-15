@@ -25,8 +25,11 @@
 ### 残っている手作業（ユーザー）
 1. **`git push --force origin main`**（履歴を書き換えたため force が必須）＋
    リモートの `feature/attach-priors` を削除。
-2. GitHub で**リポジトリを public 化** → Kaggle フォーラムで告知（Sec. 3.6 の公開経路）。
-3. **競技終了後に Competition Data を削除**（`data/` と `src/cg/`・Sec. 2.4 の義務）。
+2. GitHub で**リポジトリを public 化** → Kaggle の Simulation ディスカッションで告知
+   （**コード共有の条項**が定める公開経路。投稿先は
+   <https://www.kaggle.com/competitions/pokemon-tcg-ai-battle/discussion>）。
+3. **競技終了後に Competition Data を削除**（`data/` と `src/cg/`・**Competition Data の
+   使用制限条項**が定める義務）。
    ⚠️ **最終提出が終わるまでは消さないこと**（`data/` は提出物のビルドに必要）。
 4. 任意: 学習ノートを Wiki へ移植（公開計画⑥）。
 

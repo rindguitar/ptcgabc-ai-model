@@ -1,11 +1,11 @@
 # === 競技データ・成果物（規約上 非公開／競技終了後に削除する対象） ===
-# Section 2.4: Competition Data は再配布禁止・競技終了後に削除義務あり。
+# Competition Data の使用制限条項: 再配布禁止・競技終了後に削除義務あり。
 # 万一にも公開リポジトリへ流出しないよう、データ類はすべて追跡対象外にする。
 /data/**
 !/data/.gitkeep
 
 # --- cabt Engine（Kaggle 提供のシミュレータ = Competition Data。再配布禁止・追跡外） ---
-# Sec 2.4a / 3.18.a: 「Kaggle で提供されたソースコード・実行コード」も Competition Data。
+# 用語定義条項: 「Kaggle で提供されたソースコード・実行コード」も Competition Data に含まれる。
 # 提供物そのものはコミットしない。自分で書くエージェント/学習コードのみ追跡する。
 /src/cg/
 /src/main.py

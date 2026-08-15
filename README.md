@@ -1,6 +1,6 @@
 # ptcgabc-ai-model
 
-Kaggle「The Pokémon Company - PTCG AI Battle Challenge Strategy」（Simulation division）
+Kaggle [The Pokémon Company - PTCG AI Battle Challenge **Simulation**](https://www.kaggle.com/competitions/pokemon-tcg-ai-battle)
 に向けて開発したポケモンカード対戦 AI のリポジトリ。競技終了に伴い **MIT ライセンスで公開**。
 
 ISMCTS / floored NN-MCTS（操縦）× league・ネットデッキ（デッキ）× リーダーボード分析の
@@ -9,18 +9,19 @@ ISMCTS / floored NN-MCTS（操縦）× league・ネットデッキ（デッキ�
 
 ## ライセンス
 
-[MIT License](LICENSE)。競技規約（Competition-Specific: Winner License = MIT, Sec. 2.8）に沿う。
+[MIT License](LICENSE)。競技規約の**受賞者の義務条項**（Winner License = MIT）および
+**コード共有の条項**（公開した時点で OSI 承認ライセンス下にライセンスしたとみなされる）に沿う。
 
 ## このリポジトリに「入っていない」もの（規約上の制約）
 
-本リポジトリは [公式ルール](https://www.kaggle.com/competitions/pokemon-tcg-ai-battle-challenge-strategy/rules)
+本リポジトリは [公式ルール](https://www.kaggle.com/competitions/pokemon-tcg-ai-battle/rules)
 に基づき、以下を**意図的に含めていない**。クローンしてもそのままでは動かない点に注意:
 
 - **cabt Engine**（`src/cg/`）と **カードデータ・デッキ CSV**（`data/`）＝ Competition Data。
-  再配布禁止（Sec. 2.4）のため追跡外で、競技終了後に削除する義務がある。
+  **Competition Data の使用制限条項**（再配布禁止・競技終了後の削除義務）により追跡外。
   コードは `from cg.api import ...` で参照するだけで、エンジン本体は同梱していない。
 - **Pokémon Elements**（カード名・ワザ名・効果文・デッキ内容・画像）はコード・コミット・
-  ドキュメントのいずれにも書いていない（Sec. 2.5 / 3.18）。カードの参照は
+  ドキュメントのいずれにも書いていない（**Pokémon Elements の公開禁止条項**）。カードの参照は
   **`cardId`・数値・カテゴリ**まで（例: `id756`・`prize_value=3`）で統一している。
 - **学習済みモデル・replay JSON**（`models/` `data/replays/`）も追跡外。
 - ドキュメント中の他参加者は **TeamA〜TeamR に匿名化**してある（分析の数値・知見はそのまま）。

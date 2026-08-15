@@ -90,7 +90,8 @@
 ## 13. 効果文を「読んで数値カテゴリ化」する（NN v2・規約上OK）
 - **背景**: 当初「効果文（Pokémon Element）は読まない」と過剰に自主規制し、NN が手の効果を理解できず
   policy が手を順位付けできなかった（champion で 0.15 など）。
-- **規約の再確認**: 効果文を**モデルの学習/推論に使うのは許諾の範囲内**（ルール L73）。禁止は
+- **規約の再確認**: 効果文を**モデルの学習/推論に使うのは許諾の範囲内**
+  （**Competition Data の使用許諾範囲**の条項）。禁止は
   **公開・再配布**（L81/L190）と競技外利用のみ。派生した数値や重み・embedding は参加者の生成物で
   Pokémon Elements ではない（L306）。→ **読んでよい。出さない（commit/公開しない）だけ。**
 - **判断**: エンジン JSON の attack/skill `text` を**汎用ゲーム機構のキーワード**で効果カテゴリ
@@ -1905,7 +1906,7 @@ heuristic を回し、どのシードでも出ない手だけを逸脱と数え�
 - **Competition Data**（cabt エンジン・カードデータ・抽出デッキ）は再配布禁止・コミット禁止・追跡外。
   競技終了後は**速やかに削除**する義務（作業ツリーの `data/` `src/cg/`）。リポジトリ自体の削除義務はない。
 - **Pokémon Elements**（カード名・効果文・デッキ等）はコード/コミット/ノート/このドキュメントに**書かない（＝公開しない）**。
-  ただし**モデルの学習/推論にローカルで使うのは許諾の範囲内**（L73）＝効果文を読んで数値カテゴリ化するのは可
+  ただし**モデルの学習/推論にローカルで使うのは許諾の範囲内**＝効果文を読んで数値カテゴリ化するのは可
   （[design 13](#13-効果文を読んで数値カテゴリ化するnn-v2規約上ok)）。「使ってよい・出さないだけ」。
 - **公開計画**（競技終了後）: ① Competition Data 削除 → ②履歴に Pokémon Elements が無いか最終確認
   → ③ OSI ライセンス（MIT 推奨・勝者は必須）を付与 → ④ Kaggle フォーラムで告知 →
@@ -1939,4 +1940,25 @@ heuristic を回し、どのシードでも出ない手だけを逸脱と数え�
   （置換表は作業用の sed スクリプトに閉じ、リポジトリには含めない）。
 - **手段**: `git filter-branch --tree-filter`（`git-filter-repo` は未導入）。
   実行前に `git bundle create --all` で全ref をバックアップ。SHA は全て変わるため force push が必要。
-- 併せて **MIT `LICENSE` を追加**（Sec. 2.8・勝者は必須／公開は OSI ライセンス下という Sec. 3.6 の要件）。
+- 併せて **MIT `LICENSE` を追加**（**受賞者の義務条項**で勝者は必須／**コード共有の条項**により
+  公開した時点で OSI 承認ライセンス下にライセンスしたとみなされる）。
+
+### 参照していた規約が別 competition のものだった（要注意の発見）
+公開直前に判明した。**手元に保存していたルール全文は Strategy 側のもの**だった
+（文書中の COMPETITION TITLE と COMPETITION WEBSITE 行で確認）。一方、
+**エージェントを提出していたのは Simulation**（<https://www.kaggle.com/competitions/pokemon-tcg-ai-battle>・
+"Build an AI Training Agent to play"）。Strategy は
+<https://www.kaggle.com/competitions/pokemon-tcg-ai-battle-challenge-strategy>・
+"Analyze data and agentic play supporting" で別物。
+- 両者は無関係ではない（Strategy 側の規約に「賞金対象は **Simulation division** に登録した同一 Team・
+  両 division で構成を一致させること」という条項がある）が、**条番号が一致する保証はない**。
+- **対処**: リポジトリ内の規約引用を**すべて条項名ベースに書き換えた**（`Sec. 2.4` →
+  「Competition Data の使用制限条項」等）。義務の実質——再配布禁止・終了後削除・
+  Pokémon Elements 非公開・公開はフォーラム経由＋OSI ライセンス・受賞時 MIT——は
+  Kaggle 標準条項＋Pokémon 固有条項なので両 competition で同一と考えられるが、
+  **番号で引くと読者が該当条項に辿り着けない**ため名称で引く。
+- **教訓**: 規約を引用するときは「どの competition のどの版か」を必ず記録する。
+  番号だけの引用は、文書が差し替わった瞬間に検証不能になる。
+- 告知の投稿先も **Simulation のディスカッション**が正しい（コード共有の条項は
+  「その competition に固有のフォーラム」を要求しており、Competition Code を規律しているのは
+  提出先＝Simulation のため）。
